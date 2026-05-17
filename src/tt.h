@@ -6,7 +6,10 @@ typedef enum { BOUND_EXACT, BOUND_LOWER, BOUND_UPPER } Bound;
 
 /* xor_key = real_key ^ entry_hash(data); see tt.c for race / sentinel rationale.
    generation is for aging — incremented per `go`, lets stale entries from older
-   moves be evicted by fresh shallow ones. */
+   moves be evicted by fresh shallow ones.
+   static_eval caches evaluate(pos) from the first time we visited this
+   position — saves a recompute when a later visit needs the static eval for
+   pruning (reverse-futility / null-move). INT16_MIN = "not stored yet". */
 typedef struct {
     uint64_t xor_key;
     int32_t  score;
@@ -14,6 +17,8 @@ typedef struct {
     uint8_t  bound;
     uint8_t  generation;
     Move     best_move;
+    int16_t  static_eval;
+    int16_t  _pad;          /* keep size a multiple of 8 for alignment */
 } TTEntry;
 
 typedef struct {
@@ -28,7 +33,8 @@ void tt_free(TT *tt);
 void tt_clear(TT *tt);
 void tt_new_generation(TT *tt);
 TTEntry *tt_probe(TT *tt, uint64_t key);
-void tt_store(TT *tt, uint64_t key, int depth, int score, Bound bound, Move best);
+void tt_store(TT *tt, uint64_t key, int depth, int score, Bound bound,
+              Move best, int static_eval);
 /* UCI hashfull: permille of entries used, sampled from the first 1000. */
 int  tt_hashfull(const TT *tt);
 size_t tt_size(const TT *tt);

@@ -190,6 +190,21 @@ static inline uint64_t bishop_attacks(int sq, uint64_t occ) {
     return bishop_tbl[sq][(o * bishop_me[sq].magic) >> bishop_me[sq].shift];
 }
 
+/* Prefetch the exact cache line we'd touch for rook_attacks(sq, occ). The
+   index calculation is identical to the real lookup, but instead of returning
+   the value we issue a non-temporal prefetch hint (locality=1: data will be
+   re-used soon but isn't worth keeping in L1 long-term). Total cost is one
+   speculative magic multiply per call site that uses it — paid in parallel
+   with the *current* iteration's actual work. */
+static inline void prefetch_rook(int sq, uint64_t occ) {
+    uint64_t o = occ & rook_me[sq].mask;
+    __builtin_prefetch(&rook_tbl[sq][(o * rook_me[sq].magic) >> rook_me[sq].shift], 0, 1);
+}
+static inline void prefetch_bishop(int sq, uint64_t occ) {
+    uint64_t o = occ & bishop_me[sq].mask;
+    __builtin_prefetch(&bishop_tbl[sq][(o * bishop_me[sq].magic) >> bishop_me[sq].shift], 0, 1);
+}
+
 /* ══════════════════════════════════════════════════════════
    Init
    ══════════════════════════════════════════════════════════ */
@@ -271,16 +286,26 @@ int pos_mobility(const Position *pos, int color) {
         score += 4 * popcount64(KNIGHT_ATTACKS[s] & ~bad); }
 
     bb = pos->pieces[color][BISHOP];
-    while (bb) { int s = lsb64(bb); bb &= bb-1;
-        score += 5 * popcount64(bishop_attacks(s, occ) & ~bad); }
+    while (bb) {
+        int s = lsb64(bb); bb &= bb-1;
+        /* Prefetch next bishop's lookup line while current one is computing. */
+        if (bb) prefetch_bishop(lsb64(bb), occ);
+        score += 5 * popcount64(bishop_attacks(s, occ) & ~bad);
+    }
 
     bb = pos->pieces[color][ROOK];
-    while (bb) { int s = lsb64(bb); bb &= bb-1;
-        score += 2 * popcount64(rook_attacks(s, occ) & ~bad); }
+    while (bb) {
+        int s = lsb64(bb); bb &= bb-1;
+        if (bb) prefetch_rook(lsb64(bb), occ);
+        score += 2 * popcount64(rook_attacks(s, occ) & ~bad);
+    }
 
     bb = pos->pieces[color][QUEEN];
-    while (bb) { int s = lsb64(bb); bb &= bb-1;
-        score += 1 * popcount64((bishop_attacks(s, occ) | rook_attacks(s, occ)) & ~bad); }
+    while (bb) {
+        int s = lsb64(bb); bb &= bb-1;
+        if (bb) { prefetch_bishop(lsb64(bb), occ); prefetch_rook(lsb64(bb), occ); }
+        score += 1 * popcount64((bishop_attacks(s, occ) | rook_attacks(s, occ)) & ~bad);
+    }
 
     return score;
 }
@@ -588,6 +613,7 @@ static int gen_pseudo(const Position *pos, Move *moves, bool caps_only) {
         uint64_t bb = pos->pieces[us][BISHOP];
         while (bb) {
             int from = lsb64(bb); bb &= bb-1;
+            if (bb) prefetch_bishop(lsb64(bb), occ);
             uint64_t atk = bishop_attacks(from,occ) & targets;
             while (atk) {
                 int to = lsb64(atk); atk &= atk-1;
@@ -601,6 +627,7 @@ static int gen_pseudo(const Position *pos, Move *moves, bool caps_only) {
         uint64_t bb = pos->pieces[us][ROOK];
         while (bb) {
             int from = lsb64(bb); bb &= bb-1;
+            if (bb) prefetch_rook(lsb64(bb), occ);
             uint64_t atk = rook_attacks(from,occ) & targets;
             while (atk) {
                 int to = lsb64(atk); atk &= atk-1;
@@ -614,6 +641,7 @@ static int gen_pseudo(const Position *pos, Move *moves, bool caps_only) {
         uint64_t bb = pos->pieces[us][QUEEN];
         while (bb) {
             int from = lsb64(bb); bb &= bb-1;
+            if (bb) { prefetch_bishop(lsb64(bb), occ); prefetch_rook(lsb64(bb), occ); }
             uint64_t atk = (bishop_attacks(from,occ)|rook_attacks(from,occ)) & targets;
             while (atk) {
                 int to = lsb64(atk); atk &= atk-1;

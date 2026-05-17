@@ -10,10 +10,11 @@
    non-zero key fails to match. Avoids the "key==0 looks empty" pitfall. */
 static inline uint64_t entry_hash(const TTEntry *e) {
     uint64_t h = (uint64_t)(uint32_t)e->score;
-    h ^= (uint64_t)(uint16_t)e->depth  << 16;
-    h ^= (uint64_t)e->bound            << 32;
-    h ^= (uint64_t)e->generation       << 40;
-    h ^= (uint64_t)e->best_move        << 48;
+    h ^= (uint64_t)(uint16_t)e->depth        << 16;
+    h ^= (uint64_t)e->bound                  << 32;
+    h ^= (uint64_t)e->generation             << 40;
+    h ^= (uint64_t)e->best_move              << 48;
+    h ^= (uint64_t)(uint16_t)e->static_eval  << 24;
     return h;
 }
 
@@ -38,7 +39,8 @@ TTEntry *tt_probe(TT *tt, uint64_t key) {
     return e;
 }
 
-void tt_store(TT *tt, uint64_t key, int depth, int score, Bound bound, Move best) {
+void tt_store(TT *tt, uint64_t key, int depth, int score, Bound bound,
+              Move best, int static_eval) {
     TTEntry *e = &tt->entries[key % tt->size];
     /* Same position: always refresh. Deeper: replaces shallower collision.
        Aging: any entry from a prior `go` is freely replaceable so the table
@@ -47,12 +49,17 @@ void tt_store(TT *tt, uint64_t key, int depth, int score, Bound bound, Move best
     bool deeper   = ((int16_t)depth >= e->depth);
     bool stale    = (e->generation != tt->generation);
     if (same_pos || deeper || stale) {
-        e->score      = (int32_t)score;
-        e->depth      = (int16_t)depth;
-        e->bound      = (uint8_t)bound;
-        e->best_move  = best;
-        e->generation = tt->generation;
-        e->xor_key    = key ^ entry_hash(e);
+        /* Clamp static_eval into int16 range — evaluate() values fit
+           comfortably (~±5000 cp) but defend against future drift. */
+        if      (static_eval >  32767) static_eval =  32767;
+        else if (static_eval < -32768) static_eval = -32768;
+        e->score       = (int32_t)score;
+        e->depth       = (int16_t)depth;
+        e->bound       = (uint8_t)bound;
+        e->best_move   = best;
+        e->generation  = tt->generation;
+        e->static_eval = (int16_t)static_eval;
+        e->xor_key     = key ^ entry_hash(e);
     }
 }
 

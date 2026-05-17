@@ -258,7 +258,10 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
     if (depth <= 0)
         return quiescence(pos, alpha, beta, ctx, ply);
 
-    int static_eval = evaluate(pos);
+    /* Reuse the static eval cached in TT when we have one — saves a full
+       evaluate() pass on revisits. The TT XOR-key check upstream guarantees
+       the entry matches this position and isn't torn. */
+    int static_eval = entry ? entry->static_eval : evaluate(pos);
 
     /* Reverse-futility / static null move (depth ≤ 6, non-pv, not in check) */
     if (!is_pv && !in_check && depth <= 6) {
@@ -420,7 +423,7 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
     Bound bound = (best <= orig_alpha) ? BOUND_UPPER
                 : (best >= beta)       ? BOUND_LOWER
                                        : BOUND_EXACT;
-    tt_store(tt, pos->hash, depth, tt_score, bound, best_move);
+    tt_store(tt, pos->hash, depth, tt_score, bound, best_move, static_eval);
 
     if (ply == 0) ctx->root_best = best_move;
 
