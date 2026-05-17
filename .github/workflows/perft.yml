@@ -1,0 +1,22 @@
+name: perft
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  perft:
+    name: build + perft (depth 4 & 5)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      # gcc is preinstalled on ubuntu-latest. We don't fetch book.bin —
+      # `make test` only runs perft, which doesn't touch the book.
+      - name: build
+        run: make release
+
+      - name: perft (startpos depth 4 → 197281, depth 5 → 4865609)
+        run: make test

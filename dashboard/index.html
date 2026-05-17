@@ -1127,16 +1127,21 @@ async function refreshBenchPanel() {
   try {
     const r = await (await fetch('/api/bench-result')).json();
     const el = document.getElementById('ab-bench');
-    if (!r || !r.delta_ms_pct) {
-      el.innerHTML = '<div class="ab-empty">No bench result file yet. Run <code>make bench-compare</code> with the JSON-writer wired up.</div>';
+    if (!r || r.delta_ms_pct == null) {
+      el.innerHTML = '<div class="ab-empty">No bench yet. Run <code>make bench-compare</code> to populate.</div>';
       return;
     }
-    const cls = r.delta_ms_pct < 0 ? 'score-pos' : r.delta_ms_pct > 0 ? 'score-neg' : '';
+    // delta_ms_pct: negative = current faster than baseline = good
+    const fasterCls = r.delta_ms_pct < 0 ? 'score-pos' : r.delta_ms_pct > 0 ? 'score-neg' : '';
+    const treeFlag = r.tree_changed
+      ? ` <span class="opp-rating" style="color:var(--yellow)" title="Total nodes differed — pure-perf vs. behavior-shift not distinguishable from bench alone">⚠ tree changed</span>`
+      : '';
     el.innerHTML = `
-      <div class="gauntlet-row"><span class="gauntlet-skill">Wall time Δ</span><span class="${cls}">${r.delta_ms_pct.toFixed(2)}%</span></div>
-      <div class="gauntlet-row"><span class="gauntlet-skill">Nodes Δ</span><span>${r.delta_nodes ?? '—'}</span></div>
-      <div class="gauntlet-row"><span class="gauntlet-skill">Depth</span><span>${r.depth ?? '—'}</span></div>
-      ${r.timestamp ? `<div class="gauntlet-row"><span class="gauntlet-skill">When</span><span>${escapeHtml(r.timestamp)}</span></div>` : ''}`;
+      <div class="gauntlet-row"><span class="gauntlet-skill">Wall time Δ</span><span class="${fasterCls}">${r.delta_ms_pct >= 0 ? '+' : ''}${r.delta_ms_pct.toFixed(2)}%</span></div>
+      <div class="gauntlet-row"><span class="gauntlet-skill">Nodes Δ</span><span>${r.delta_nodes >= 0 ? '+' : ''}${r.delta_nodes.toLocaleString()}${treeFlag}</span></div>
+      <div class="gauntlet-row"><span class="gauntlet-skill">Depth</span><span>${r.depth ?? '—'} <span class="opp-rating">× ${r.runs ?? '?'} runs</span></span></div>
+      ${r.current_sha ? `<div class="gauntlet-row"><span class="gauntlet-skill">Build</span><span><code>${escapeHtml(r.current_sha)}</code></span></div>` : ''}
+      ${r.timestamp ? `<div class="gauntlet-row"><span class="gauntlet-skill">When</span><span class="opp-rating">${escapeHtml(r.timestamp)}</span></div>` : ''}`;
   } catch (e) {}
 }
 

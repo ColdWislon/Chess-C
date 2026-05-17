@@ -23,7 +23,11 @@ SERVICE="lichess-bot-c"
 DASH_URL="http://127.0.0.1:8080/api/status?bot=rpibot73"
 
 IDLE_POLL_S="${IDLE_POLL_S:-30}"
-IDLE_WAIT_MAX_S="${IDLE_WAIT_MAX_S:-1800}"   # 30 min cap on idle wait
+# 60-min cap: a classical 15+10 game can run 40+ min, so a 30-min cap would
+# make the gauntlet skip itself any night the bot starts a long game close
+# to 02:00. Even with this cap, finish is well before morning matchmaking
+# resumes around 07:35.
+IDLE_WAIT_MAX_S="${IDLE_WAIT_MAX_S:-3600}"
 GAUNTLET_TIMEOUT="${GAUNTLET_TIMEOUT:-6h}"   # hard wall-time, kills hangs
 
 ts() { date '+%Y-%m-%d %H:%M:%S'; }

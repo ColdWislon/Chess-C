@@ -14,10 +14,35 @@ import subprocess
 import re
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 from urllib.request import urlopen, Request
+
+
+# ── TTL cache ────────────────────────────────────────────────────────
+# Wrap expensive fetches (journalctl, lichess API) so we don't pay for them
+# on every /api/status poll. Different TTLs for different freshness needs.
+_cache_lock = threading.Lock()
+_cache: dict[str, tuple[float, object]] = {}
+
+
+def cached(key: str, ttl_s: float, producer):
+    """Return cached value for `key` if fresher than ttl_s, else call
+    `producer()`, cache its result, return it. Thread-safe."""
+    now = time.monotonic()
+    with _cache_lock:
+        hit = _cache.get(key)
+        if hit and (now - hit[0]) < ttl_s:
+            return hit[1]
+    # Compute outside the lock — producer may itself be slow / make network
+    # calls, and holding the lock during that would serialize unrelated
+    # cache entries.
+    val = producer()
+    with _cache_lock:
+        _cache[key] = (time.monotonic(), val)
+    return val
 
 BOTS = {
     "rpibot73": {
@@ -71,12 +96,8 @@ def _service_active(service: str) -> bool:
 
 def activity_log(service: str) -> list:
     """Return recent meaningful events from the given bot's journal."""
-    try:
-        out = subprocess.check_output(
-            ["journalctl", "-u", service, "-n", "500", "--no-pager", "-o", "short-iso"],
-            stderr=subprocess.DEVNULL, timeout=3, text=True,
-        )
-    except Exception:
+    out = _journal_iso(service)
+    if not out:
         return []
 
     events = []
@@ -135,6 +156,36 @@ BUILD_PATTERN = re.compile(r"info string BUILD (\S+)")
 BUILD_INFO_PATH    = Path("/home/bertrand/chess-c/build-info.json")
 BENCH_RESULT_PATH  = Path("/home/bertrand/chess-c/last-bench.json")
 GAUNTLET_LOG_PATH  = Path("/home/bertrand/chess-c/ladder_match.log")
+
+
+def _journal_cat(service: str) -> str:
+    """Most recent 4000 journal lines for `service` in compact format,
+    cached 3 s. Shared across move_history / engine_stats / latest_build_id
+    so a single /api/status request makes one journalctl invocation instead
+    of three. 4000 is the deepest consumer's window — others slice this."""
+    def fetch():
+        try:
+            return subprocess.check_output(
+                ["journalctl", "-u", service, "-n", "4000", "--no-pager", "-o", "cat"],
+                stderr=subprocess.DEVNULL, timeout=3, text=True,
+            )
+        except Exception:
+            return ""
+    return cached(f"journal_cat:{service}", 3.0, fetch)
+
+
+def _journal_iso(service: str) -> str:
+    """500 recent journal lines with iso-timestamp prefix, cached 3 s.
+    Used by activity_log only — different format from _journal_cat."""
+    def fetch():
+        try:
+            return subprocess.check_output(
+                ["journalctl", "-u", service, "-n", "500", "--no-pager", "-o", "short-iso"],
+                stderr=subprocess.DEVNULL, timeout=3, text=True,
+            )
+        except Exception:
+            return ""
+    return cached(f"journal_iso:{service}", 3.0, fetch)
 
 
 # ── System stats ──────────────────────────────────────────────────────
@@ -337,13 +388,7 @@ def parse_info(line: str) -> dict:
 def latest_build_id(service: str) -> str | None:
     """Most recent `info string BUILD <id>` line from the journal. Returns
     None until the engine has been restarted at least once with the new build."""
-    try:
-        out = subprocess.check_output(
-            ["journalctl", "-u", service, "-n", "2000", "--no-pager", "-o", "cat"],
-            stderr=subprocess.DEVNULL, timeout=3, text=True,
-        )
-    except Exception:
-        return None
+    out = _journal_cat(service)
     for line in reversed(out.splitlines()):
         m = BUILD_PATTERN.search(line)
         if m:
@@ -375,12 +420,8 @@ def move_history(service: str, max_moves: int = 60) -> dict:
     regardless of book — so the chart's x-axis matches the engine's actual
     move count, with book moves accounted for via book_count."""
     empty = {"book_count": 0, "first_search_move": 1, "moves": []}
-    try:
-        out = subprocess.check_output(
-            ["journalctl", "-u", service, "-n", "4000", "--no-pager", "-o", "cat"],
-            stderr=subprocess.DEVNULL, timeout=3, text=True,
-        )
-    except Exception:
+    out = _journal_cat(service)
+    if not out:
         return empty
 
     history: list[dict] = []
@@ -583,14 +624,7 @@ def opening_repertoire(recent: list[dict], bot_name: str, top_n: int = 5) -> dic
 
 def engine_stats(service: str) -> dict:
     """Parse the last 'info depth' line from the bot's journal."""
-    try:
-        out = subprocess.check_output(
-            ["journalctl", "-u", service, "-n", "200", "--no-pager", "-o", "cat"],
-            stderr=subprocess.DEVNULL, timeout=3, text=True,
-        )
-    except Exception:
-        return {}
-
+    out = _journal_cat(service)
     for line in reversed(out.splitlines()):
         info = parse_info(line)
         if info and "depth" in info:
@@ -706,12 +740,17 @@ class Handler(BaseHTTPRequestHandler):
 
         # Fetch wider than the 10-row display so games-today and the opening
         # repertoire have enough data to be useful. 50 covers a typical day of
-        # bot play without straining the lichess rate limit.
-        recent_raw = lichess_get(
-            f"/api/games/user/{name.lower()}?max=50&moves=false&clocks=false&opening=true",
-            token, ndjson=True,
+        # bot play. Cached for 30 s — the dashboard polls every 5 s but the
+        # recent-games list rarely changes that fast, and lichess will rate-
+        # limit us into oblivion if we ask for 50 games every 5 s.
+        recent = cached(
+            f"lichess_recent:{name.lower()}",
+            30.0,
+            lambda: lichess_get(
+                f"/api/games/user/{name.lower()}?max=50&moves=false&clocks=false&opening=true",
+                token, ndjson=True,
+            ) or [],
         )
-        recent = recent_raw or []
 
         is_online = playing_url is not None or _service_active(service)
 

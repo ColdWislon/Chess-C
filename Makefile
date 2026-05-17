@@ -69,4 +69,17 @@ bench-compare-timed: release
 clean:
 	rm -f chess-engine-c chess-engine-c-dbg chess-engine-c.baseline src/build_id.h
 
-.PHONY: release debug test clean bench bench-timed bench-baseline bench-compare bench-compare-timed FORCE
+# ── Opening book ──────────────────────────────────────────────────
+# book.bin is gitignored (re-downloadable, ~5 MB). `make book` fetches it
+# from the upstream Donna GM-2600 book if absent. main.c looks for the
+# file at /home/bertrand/chess-c/book.bin then falls back to ./book.bin.
+BOOK_URL = https://github.com/michaeldv/donna_opening_books/raw/master/gm2600.bin
+
+book: book.bin
+book.bin:
+	@echo "downloading opening book from $(BOOK_URL)…"
+	@wget --quiet --show-progress -O book.bin.tmp "$(BOOK_URL)"
+	@mv book.bin.tmp book.bin
+	@echo "book.bin: $$(du -h book.bin | cut -f1)"
+
+.PHONY: release debug test clean bench bench-timed bench-baseline bench-compare bench-compare-timed book FORCE

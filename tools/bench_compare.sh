@@ -105,3 +105,34 @@ printf "  Total nodes      : %15s   %15s   %s%s\n" \
 printf "  Nodes/second     : %15s   %15s   %s (%s)\n" \
     "$OLD_NPS"   "$NEW_NPS"   "$(delta "$NEW_NPS" "$OLD_NPS")"     "$(pct "$NEW_NPS" "$OLD_NPS")"
 printf "\n"
+
+# ── Persist a JSON summary the dashboard reads ──────────────────────────
+# `last-bench.json` is the single source of truth for the "Last A/B bench"
+# panel. Overwritten by every run so the dashboard always shows the most
+# recent comparison. Best-effort: don't fail the whole script if write fails.
+OUT="$REPO/last-bench.json"
+DELTA_MS_PCT=$(awk -v a="$NEW_MIN" -v b="$OLD_MIN" 'BEGIN { if (b == 0) print "null"; else printf "%.2f", (a-b)*100.0/b }')
+DELTA_NODES=$(awk -v a="$NEW_NODES" -v b="$OLD_NODES" 'BEGIN { printf "%d", a-b }')
+TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+TREE_CHANGED=$([ "$OLD_NODES" != "$NEW_NODES" ] && echo "true" || echo "false")
+if command -v git >/dev/null 2>&1; then
+    CUR_SHA=$(cd "$REPO" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+else
+    CUR_SHA="unknown"
+fi
+cat > "$OUT" <<EOF
+{
+  "depth":          $DEPTH,
+  "runs":           $RUNS,
+  "delta_ms_pct":   $DELTA_MS_PCT,
+  "delta_nodes":    $DELTA_NODES,
+  "tree_changed":   $TREE_CHANGED,
+  "baseline_ms":    $OLD_MIN,
+  "current_ms":     $NEW_MIN,
+  "baseline_nodes": $OLD_NODES,
+  "current_nodes":  $NEW_NODES,
+  "current_sha":    "$CUR_SHA",
+  "timestamp":      "$TS"
+}
+EOF
+echo "  → wrote $OUT" >&2
