@@ -6,24 +6,34 @@
 #include <time.h>
 
 /* ── Polyglot random number layout ──────────────────────────
-   [0..767]  piece keys: piece_idx*64 + square
-             piece_idx: 0=bP 1=bN 2=bB 3=bR 4=bQ 5=bK
-                        6=wP 7=wN 8=wB 9=wR 10=wQ 11=wK
+   [0..767]  piece keys: poly_piece_idx * 64 + square, where
+             poly_piece_idx = (engine_piece) * 2 + (1 if WHITE else 0)
+             ⇒ interleaved order (matches python-chess + canonical spec):
+               0=bP 1=wP 2=bN 3=wN 4=bB 5=wB
+               6=bR 7=wR 8=bQ 9=wQ 10=bK 11=wK
    [768..771] castling: WK WQ BK BQ
-   [772..779] en-passant files a..h
-   [780]      black to move
+   [772..779] en-passant files a..h (only if a pawn could legally capture)
+   [780]      side-to-move (XORed when WHITE moves — verified against
+              the canonical startpos key 0x463b96181691fc9c which our
+              book.bin contains)
+
+   Bug fixed 2026-05-17: previous version used a blocked [bP..bK, wP..wK]
+   layout AND inverted side-to-move (`BLACK`). Result: no book hit ever
+   fired — the engine silently searched every move of every game despite
+   "Opening book loaded." in startup logs.
    ─────────────────────────────────────────────────────────── */
 
 static uint64_t poly_hash(const Position *pos) {
     uint64_t h = 0;
 
     for (int c = 0; c < 2; c++) {
-        int base = (c == WHITE) ? 6 : 0;
+        int color_off = (c == WHITE) ? 1 : 0;
         for (int p = 0; p < 6; p++) {
+            int poly_p = p * 2 + color_off;
             uint64_t bb = pos->pieces[c][p];
             while (bb) {
                 int sq = lsb64(bb); bb &= bb-1;
-                h ^= POLY[(base + p) * 64 + sq];
+                h ^= POLY[poly_p * 64 + sq];
             }
         }
     }
@@ -35,7 +45,8 @@ static uint64_t poly_hash(const Position *pos) {
     if (pos->castling & CASTLE_BQ) h ^= POLY[771];
 
     /* En passant — only hash if a pawn can actually capture
-       (matches EnPassantMode::Legal used in the Rust engine) */
+       (matches EnPassantMode::Legal used by python-chess + standard
+       Polyglot generators). */
     if (pos->ep_sq >= 0) {
         int ep_file = FILE_OF(pos->ep_sq);
         bool can_ep;
@@ -47,7 +58,7 @@ static uint64_t poly_hash(const Position *pos) {
     }
 
     /* Side to move */
-    if (pos->side == BLACK) h ^= POLY[780];
+    if (pos->side == WHITE) h ^= POLY[780];
 
     return h;
 }

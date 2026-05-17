@@ -351,61 +351,83 @@ def latest_build_id(service: str) -> str | None:
     return None
 
 
-def move_history(service: str, max_moves: int = 60) -> list[dict]:
-    """Walk recent journal lines; emit one record per completed search. The
-    engine's `bestmove` goes to stdout (consumed by lichess-bot, not journal),
-    so we use lichess-bot's own `Searching for wtime ...` log line as the
-    "new search begins" boundary — the highest-depth `info depth` line before
-    it is the previous move's final stats. Resets on `Game ID:` (new game)."""
+def move_history(service: str, max_moves: int = 60) -> dict:
+    """Walk recent journal lines and reconstruct per-move stats for the
+    current game.
+
+    Boundary used: lichess-bot's `Source: Engine` log line — fires once per
+    move, AFTER engine.play() returns, so the journal interleaving between
+    the engine subprocess and the python parent is already settled.
+
+      - If info-depth lines preceded the `Source: Engine`: this was a
+        searched move (we keep the highest-depth one).
+      - If none preceded: this was a book move (the engine short-circuits
+        in uci.c and emits no info lines).
+
+    Returns:
+      {
+        "book_count":        int,   # contiguous book moves at game start
+        "first_search_move": int,   # 1-indexed engine-move # where book ended
+        "moves":             [ {move_num, depth, score_cp, time_ms, nodes, pv}, ... ]
+      }
+
+    `move_num` is the absolute engine-move index — 1 = engine's first move
+    regardless of book — so the chart's x-axis matches the engine's actual
+    move count, with book moves accounted for via book_count."""
+    empty = {"book_count": 0, "first_search_move": 1, "moves": []}
     try:
         out = subprocess.check_output(
             ["journalctl", "-u", service, "-n", "4000", "--no-pager", "-o", "cat"],
             stderr=subprocess.DEVNULL, timeout=3, text=True,
         )
     except Exception:
-        return []
+        return empty
 
     history: list[dict] = []
     last_info: dict = {}
     move_num = 0
-
-    def flush():
-        if not last_info:
-            return
-        nonlocal move_num
-        move_num += 1
-        history.append({
-            "move_num": move_num,
-            "depth":    last_info.get("depth"),
-            "score_cp": last_info.get("score_cp"),
-            "time_ms":  last_info.get("time"),
-            "nodes":    last_info.get("nodes"),
-            "pv":       last_info.get("pv"),
-        })
+    book_count = 0
+    saw_search_yet = False
 
     for line in out.splitlines():
-        # The engine re-emits "info string BUILD <sha>" on every ucinewgame,
-        # which is the cleanest "new game starts here" boundary visible in the
-        # journal. Lichess-bot's own game-end logs ("Game over"/"Game won by")
-        # also count — though by then the BUILD reset usually has already
-        # cleared us out before the next game begins.
+        # Game / engine boundary: reset everything.
         if "info string BUILD" in line or "Game over" in line or "Game won by" in line:
             history.clear()
             last_info = {}
             move_num = 0
+            book_count = 0
+            saw_search_yet = False
             continue
         info = parse_info(line)
         if info:
             last_info = info
             continue
-        # Lichess-bot's start-of-search marker. Everything in `last_info` from
-        # before this line belongs to the previous search.
-        if "Searching for" in line and "engine_wrapper" in line:
-            flush()
+        if "Source: Engine" in line and "engine_wrapper" in line:
+            # One engine move just completed.
+            move_num += 1
+            if last_info:
+                saw_search_yet = True
+                history.append({
+                    "move_num": move_num,
+                    "depth":    last_info.get("depth"),
+                    "score_cp": last_info.get("score_cp"),
+                    "time_ms":  last_info.get("time"),
+                    "nodes":    last_info.get("nodes"),
+                    "pv":       last_info.get("pv"),
+                })
+            else:
+                # No info-depth → book move. Count only the contiguous
+                # opening-book prefix; once a real search has run we
+                # don't reclassify later silent moves as book.
+                if not saw_search_yet:
+                    book_count += 1
             last_info = {}
-    # The currently-in-progress search hasn't terminated yet — don't flush it
-    # (would otherwise pollute history with the in-flight depth).
-    return history[-max_moves:]
+
+    return {
+        "book_count":        book_count,
+        "first_search_move": book_count + 1,
+        "moves":             history[-max_moves:],
+    }
 
 
 def last_bench_result() -> dict | None:
@@ -419,42 +441,92 @@ def last_bench_result() -> dict | None:
 
 
 def last_gauntlet_result() -> dict | None:
-    """Parse the tail of ladder_match.log for the score breakdown per
-    Stockfish skill. The current ladder_match.py writes a summary block like
-    `vs SF skill N: W/D/L (score%)`. We grep the last such block."""
+    """Parse ladder_match.log. Format produced by ladder_match.py:
+
+        == SF Skill 5 ==
+          Game  1/20  (W)  W  153 plies  running 1.0/1
+          Game  2/20  (B)  L  ...
+          ...
+          Final 18.5/20  (92%)  ≈ +436 elo vs SF skill 5
+
+        == SF Skill 8 ==
+          ...
+
+        == FINAL LADDER ==
+          SF skill  5: 18.5/20  (92%)  ≈ +436 elo
+          SF skill  8: 12.5/20  (62%)  ≈ +89 elo
+          ...
+
+    We count W/D/L per skill from the per-game lines and pick the score/elo
+    from the matching "Final" line. The "FINAL LADDER" block is also parsed
+    as a cross-check / fallback when per-game lines are absent."""
     try:
         text = GAUNTLET_LOG_PATH.read_text()
     except Exception:
         return None
-    # Find the LAST occurrence of a summary-style line. Format is loose; we
-    # accept any "skill <N>" + "W-D-L" or "W/D/L" pattern.
-    pattern = re.compile(
-        r"skill\s+(\d+).*?(\d+)\s*[/-]\s*(\d+)\s*[/-]\s*(\d+)",
-        re.IGNORECASE,
-    )
-    results = {}
-    final_score = None
+
+    skill_re   = re.compile(r"==\s*SF\s+Skill\s+(\d+)\s*==", re.IGNORECASE)
+    game_re    = re.compile(r"\bGame\s+\d+/\d+\s+\(([WB])\)\s+([WLD])\b")
+    final_re   = re.compile(r"Final\s+([\d.]+)\s*/\s*(\d+).*?([+-]?\d+)\s*elo", re.IGNORECASE)
+    ladder_re  = re.compile(r"SF\s+skill\s+(\d+):\s*([\d.]+)\s*/\s*(\d+).*?([+-]?\d+)\s*elo", re.IGNORECASE)
+    total_re   = re.compile(r"Total wall time:\s*([\d.]+)\s*min", re.IGNORECASE)
+
+    results: dict[int, dict] = {}
+    current = None
+    wall_min = None
+
     for line in text.splitlines():
-        m = pattern.search(line)
+        m = skill_re.search(line)
         if m:
-            skill = int(m.group(1))
-            w, d, l = int(m.group(2)), int(m.group(3)), int(m.group(4))
-            total = w + d + l
-            results[skill] = {
-                "wins":   w, "draws": d, "losses": l,
-                "score":  w + d * 0.5,
-                "total":  total,
-            }
-        if "FINAL" in line.upper() or "TOTAL" in line.upper():
-            sm = re.search(r"(\d+(?:\.\d+)?)\s*/\s*(\d+)", line)
-            if sm:
-                final_score = {"points": float(sm.group(1)), "out_of": int(sm.group(2))}
+            current = int(m.group(1))
+            results.setdefault(current, {"wins": 0, "draws": 0, "losses": 0,
+                                        "score": 0.0, "total": 0,
+                                        "elo": None})
+            continue
+
+        if current is not None:
+            gm = game_re.search(line)
+            if gm:
+                bucket = results[current]
+                outcome = gm.group(2)
+                if   outcome == "W": bucket["wins"]   += 1
+                elif outcome == "L": bucket["losses"] += 1
+                elif outcome == "D": bucket["draws"]  += 1
+                continue
+
+            fm = final_re.search(line)
+            if fm:
+                bucket = results[current]
+                bucket["score"] = float(fm.group(1))
+                bucket["total"] = int(fm.group(2))
+                bucket["elo"]   = int(fm.group(3))
+                current = None  # leave block on Final
+                continue
+
+        # FINAL LADDER fallback / cross-check
+        lm = ladder_re.search(line)
+        if lm:
+            skill = int(lm.group(1))
+            b = results.setdefault(skill, {"wins": 0, "draws": 0, "losses": 0,
+                                          "score": 0.0, "total": 0, "elo": None})
+            b["score"] = float(lm.group(2))
+            b["total"] = int(lm.group(3))
+            b["elo"]   = int(lm.group(4))
+
+        tm = total_re.search(line)
+        if tm:
+            wall_min = float(tm.group(1))
+
     if not results:
         return None
+
+    total_score = sum(r["score"] for r in results.values())
+    total_games = sum(r["total"] for r in results.values())
     return {
-        "per_skill":  [{"skill": k, **v} for k, v in sorted(results.items())],
-        "final":      final_score,
-        "mtime":      int(GAUNTLET_LOG_PATH.stat().st_mtime),
+        "per_skill": [{"skill": k, **v} for k, v in sorted(results.items())],
+        "final":     {"points": total_score, "out_of": total_games} if total_games else None,
+        "wall_min":  wall_min,
+        "mtime":     int(GAUNTLET_LOG_PATH.stat().st_mtime),
     }
 
 

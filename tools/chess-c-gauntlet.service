@@ -1,0 +1,23 @@
+[Unit]
+Description=Nightly Stockfish gauntlet for chess-c
+# Don't fight with the bot at start time — the wrapper waits for idle anyway,
+# but ordering here is belt-and-braces.
+After=lichess-bot-c.service network.target
+
+[Service]
+Type=oneshot
+# Root because the script needs `systemctl stop/start lichess-bot-c`. The
+# gauntlet itself runs python+stockfish as root which is fine here (no
+# network, no untrusted input). If that changes, drop privileges in-script.
+User=root
+WorkingDirectory=/home/bertrand/chess-c
+ExecStart=/home/bertrand/chess-c/tools/nightly_gauntlet.sh
+
+# Output goes to journalctl -u chess-c-gauntlet.
+StandardOutput=journal
+StandardError=journal
+
+# The wrapper itself enforces its own timeout via `timeout 6h ...`; this is
+# the systemd-level outer fence. Generous so a thermally-throttled run can
+# still complete on a hot Pi.
+TimeoutStartSec=7h

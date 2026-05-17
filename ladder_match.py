@@ -3,15 +3,20 @@
 
 20 games per skill level (alternating colors), 2s/move, prints progress and
 per-level summary + crude elo estimate. Output also goes to a PGN file.
+
+Env overrides (for nightly schedule / smoke tests):
+  LADDER_GAMES_PER_LVL   integer, default 20
+  LADDER_MOVETIME        float seconds, default 2.0
+  LADDER_SKILLS          comma-separated ints, default "5,8,12,16"
 """
-import math, sys, time
+import math, os, sys, time
 import chess, chess.engine, chess.pgn
 
 OUR_CMD       = "/home/bertrand/chess-c/chess-engine-c"
 SF_CMD        = "/usr/games/stockfish"
-MOVETIME      = 2.0
-GAMES_PER_LVL = 20
-SF_SKILLS     = [5, 8, 12, 16]
+MOVETIME      = float(os.environ.get("LADDER_MOVETIME", "2.0"))
+GAMES_PER_LVL = int(os.environ.get("LADDER_GAMES_PER_LVL", "20"))
+SF_SKILLS     = [int(x) for x in os.environ.get("LADDER_SKILLS", "5,8,12,16").split(",") if x.strip()]
 THREADS       = 4
 PGN_OUT       = "/home/bertrand/chess-c/ladder_match.pgn"
 LOG_OUT       = "/home/bertrand/chess-c/ladder_match.log"

@@ -1,0 +1,16 @@
+[Unit]
+Description=Schedule nightly chess-c gauntlet at 02:00 local
+
+[Timer]
+# Fire at 02:00 every day. systemd's default is the system's local time.
+OnCalendar=*-*-* 02:00:00
+# If the Pi was off / asleep when the timer should have fired, run it on
+# next boot (subject to the idle-check and matchmaking state).
+Persistent=true
+# Spread the start over 10 min so consecutive nights don't all land on the
+# exact same wall-clock minute — helpful when scaling, harmless when not.
+RandomizedDelaySec=10min
+Unit=chess-c-gauntlet.service
+
+[Install]
+WantedBy=timers.target
