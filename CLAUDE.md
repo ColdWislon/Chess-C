@@ -1,0 +1,208 @@
+# Chess Engine Project (C)
+
+A classical UCI chess engine in C, running as an always-on bot on Raspberry Pi 4, connected to Lichess via lichess-bot.
+
+## Repository layout
+
+```
+/home/bertrand/
+├── chess-c/                  # C engine (this repo)
+│   ├── src/
+│   │   ├── main.c            # Entry point, loads opening book
+│   │   ├── board.c/.h        # Move generation, position state, Zobrist
+│   │   ├── eval.c/.h         # Material + PSTs + mobility + king safety
+│   │   ├── search.c/.h       # Iterative deepening, PVS, null-move, LMR, killers, history
+│   │   ├── tt.c/.h           # Transposition table
+│   │   ├── opening.c/.h      # Polyglot book probe
+│   │   ├── chat.c/.h         # Builds engine chat lines for lichess-bot
+│   │   ├── perft.c/.h        # Move generation tests
+│   │   ├── uci.c/.h          # UCI protocol handler
+│   │   └── poly_keys.h       # Polyglot 781 Zobrist constants
+│   ├── book.bin              # Polyglot opening book
+│   ├── Makefile              # `make release`, `make test`, `make clean`
+│   ├── tools/gen_poly_keys.py
+│   ├── match.py / compare.py # A/B match harnesses (legacy)
+│   └── chess-engine-c        # Built binary
+├── lichess-bot/              # Python bridge: engine ↔ Lichess API
+│   ├── config-c.yml          # CANONICAL — used by lichess-bot-c.service (rpiBot73)
+│   ├── config.yml            # legacy — used by the disabled lichess-bot.service
+│   └── venv/
+└── chess-dashboard/          # Web dashboard (port 8080)
+```
+
+## Build
+
+```bash
+cd /home/bertrand/chess-c
+make release        # → ./chess-engine-c (gcc -O3 -march=native)
+make test           # perft startpos at depth 4 (197281) and 5 (4865609)
+make debug          # → ./chess-engine-c-dbg (-O0 -g)
+make clean
+```
+
+`src/poly_keys.h` is checked in (canonical 781 Polyglot constants). Regenerate with:
+```bash
+python3 tools/gen_poly_keys.py > src/poly_keys.h
+```
+
+## Run engine manually (UCI)
+
+```bash
+./chess-engine-c
+# then type UCI commands:
+uci
+isready
+position startpos
+go movetime 3000
+quit
+```
+
+## Services
+
+```bash
+sudo systemctl status lichess-bot-c chess-dashboard
+sudo systemctl restart lichess-bot-c
+sudo journalctl -u lichess-bot-c -f      # live engine logs (depth/score/nodes/nps/seldepth)
+sudo journalctl -u chess-dashboard -f
+```
+
+`lichess-bot-c.service` is canonical (runs `--config config-c.yml`, account rpiBot73). The legacy `lichess-bot.service` (`config.yml`, MegaBot73) was disabled 2026-05-16 — don't accidentally re-enable it.
+
+Dashboard: http://192.168.1.66:8080
+
+## Don't disturb live games
+
+The Pi has 4 cores. The running engine subprocess uses all of them under `Threads=4`. Restarting the service OR running CPU-heavy benchmarks/matches alongside a live game will hurt — or outright abandon — that game. **Before any of the following, confirm rpiBot73 is idle:**
+
+- `sudo systemctl restart lichess-bot-c` (kills the engine subprocess → forfeits the ongoing game)
+- `make bench-compare`, `make bench-compare-timed`, `make bench` (competes for the same 4 cores → live engine times out / blunders)
+- `python3 ladder_match.py` or any gauntlet vs Stockfish (long-running, full CPU)
+- `match.py` / `compare.py` A/B match harnesses
+
+**Idle check (one-liner):**
+```bash
+curl -s http://127.0.0.1:8080/api/status?bot=rpibot73 \
+  | python3 -c "import sys,json; g=json.load(sys.stdin).get('current_game'); print('IDLE' if not g else f'PLAYING {g[\"id\"]}')"
+```
+
+If it prints `PLAYING <id>`, wait. Polite poll interval: 30-60 s. The game URL is `https://lichess.org/<id>` if you want to watch it finish. Building (`make release`) does not need to wait — only the binary on disk is changed; the running service keeps using the binary it `exec()`'d at startup, until the next restart.
+
+## Bot account
+
+- Username: **rpiBot73** on lichess.org (legacy MegaBot73 account is idle since 2026-05-16)
+- Token stored in: `/home/bertrand/lichess-bot/config-c.yml` (the canonical config — `config.yml` is the disabled legacy unit)
+- Accepts: rapid and classical, rated, standard variant
+- Matchmaking: enabled — challenges other bots when idle, rotates between 10+0 / 10+5 / 15+10
+
+## Engine architecture
+
+| Layer | Detail |
+|---|---|
+| Move generation | Bitboards, magic-free sliders (handwritten in `board.c`) |
+| Search | Iterative deepening, PVS, LMR, null-move pruning, killers, history, aspiration windows, check extensions |
+| Quiescence | Captures only, MVV-LVA ordering, queen-promotion bonus |
+| Transposition table | 64 MB source default; **384 MB in production** via `Hash` in `config-c.yml`. Zobrist-keyed, replace-by-depth. |
+| Repetition | 2-fold within search treated as draw; halfmove clock bounded |
+| Evaluation | Material + piece-square tables + mobility + king safety + pawn structure |
+| Opening book | Polyglot `.bin` file — `/home/bertrand/chess-c/book.bin` (path hardcoded in `main.c`, falls back to `./book.bin`) |
+| Tablebases | **Not implemented** — see "Known gaps" below |
+| Time management | `total_time / moves_left * 0.9`; soft budget predicts next iteration as 2× the last and aborts before starting it if that wouldn't fit in the remaining budget (fixed 2026-05-17 — old formula aborted at 50% of total budget regardless of iteration time) |
+| UCI options declared | Hash (1-4096 MB), Threads (Lazy SMP), Move Overhead, Minimum Thinking Time — only `Hash` and `Threads` are actually used; the latter two are declared but ignored |
+
+## Engine chat (lichess relay)
+
+The engine emits one line per move on stdout:
+
+```
+info string CHAT <message>
+```
+
+lichess-bot's `engine_wrapper.py` reads `result.info["string"]`, strips the `CHAT ` prefix, and posts via the Lichess chat API after the move is made. Priority chain in `src/chat.c` (only the highest-priority message that matches gets emitted per move):
+
+1. First move of new game → `engine ready, hash 64M, PVS + null-move + LMR`
+2. Mate detected / facing mate → `mate in N` / `facing mate in N`
+3. Promotion → `promote to <piece>, eval ±X.XX`
+4. Capture of queen/rook → `captures <piece>, eval ±X.XX`
+5. Eval swing ≥ 150 cp vs previous turn → `eval ±X.XX -> ±Y.YY`
+
+State (`is_first_move`, `last_score`, `have_last`) lives in `uci.c::uci_run` and resets on `ucinewgame`. python-chess only keeps the **last** `info string` of a search in `info["string"]`, so the engine emits exactly one CHAT line per move (right before `bestmove`).
+
+### Chat smoke test (no Lichess needed)
+
+```bash
+printf 'uci\nucinewgame\nposition startpos\ngo movetime 200\nposition fen rnb1kbnr/pppp1ppp/8/4p3/4P2q/5N2/PPPP1PPP/RNBQKB1R w KQkq - 1 3\ngo movetime 600\nquit\n' \
+  | ./chess-engine-c 2>/dev/null | grep -E "^(info string|bestmove)"
+```
+
+Expect: a `CHAT engine ready ...` greeting on the first move, then a `CHAT captures queen ...` on the second.
+
+## Key implementation notes
+
+- Piece encoding (board.h): `PAWN=0 KNIGHT=1 BISHOP=2 ROOK=3 QUEEN=4 KING=5 PIECE_NONE=6`. Different from Rust/shakmaty (which started at 1).
+- `Move` is a packed `uint32_t` — see encoding comment in `board.h:46`. Use the `MOVE_FROM/TO/PIECE/CAPTURE/PROMO/FLAGS` macros, never bit-mask manually.
+- Search returns scores from side-to-move POV in centipawns. Mate scores are stored in TT as ply-independent values; converted on probe/store.
+- `info depth … score cp …` goes to **stderr** (parsed from journalctl by the dashboard). Only UCI responses + `info string CHAT …` go to stdout.
+- `chess-engine-c.service` doesn't exist as a separate unit — the engine is launched as a child process by `lichess-bot-c.service`.
+
+## Known gaps
+
+- **Syzygy tablebases**: not yet implemented (the previous Rust engine used `shakmaty-syzygy`). Easiest path forward is to link Fathom (CC0 C library by Jon Dart) and call it from `search.c` at the root and inside qsearch for shallow endgames. No tablebase files are currently on disk, so practical regression is zero.
+- `setoption` honors `Hash` (1-4096 MB) and `Threads` (Lazy SMP). `Move Overhead` and `Minimum Thinking Time` are declared but unused.
+
+## Lichess matchmaking — known issues
+
+**100 bot-vs-bot games per day limit:** Lichess caps each bot at 100 games vs other bots per 24 hours. Active bots (maia, GarboBot, sargon, turkjs, Jibbby, halcyonbot) hit this limit by midnight European time. The counter resets around 07:35 each morning. Challenges fail with `"played 100 games against other bots today"` until then.
+
+**Permanent block list** (bots that never accept, configured in `config-c.yml`):
+- `maia2200_10n` — not accepting challenges
+- `ChessChildren`, `honzovy-sachy-2` — don't accept bot challenges
+- `DarkOnWeakBot` — not accepting at the moment
+- `Demolito_L6` — wants classical only
+- `anti-bot` — does not accept
+
+**Rate limiting — two distinct flavors:**
+
+1. **`/api/stream/event` 429** — triggered by restarting lichess-bot in tight loops (the event stream gets reopened on every restart). `RestartSec=60` in the service file prevents the systemd auto-restart cycle from hitting this. Recovery: stop, kill stray procs, wait, start.
+
+2. **`/api/challenge/<bot>` 429** — triggered by issuing outgoing challenges too fast. Surfaces as `ERROR {'error': 'Too many requests.` in `matchmaking.py:100` and applies even on a clean fresh start if the token has been challenging recently. Matchmaking has its own backoff (`matchmaking.py:265` schedules the next attempt) so the bot recovers without intervention — it just sits idle until the window opens. Observed cleared after ~5-10 min.
+
+Recovery if either type is stuck:
+1. `sudo systemctl stop lichess-bot`
+2. `ps aux | grep lichess | grep -v grep | awk '{print $2}' | xargs sudo kill -9`
+3. Wait for it to clear, then `sudo systemctl start lichess-bot`
+
+**Stray processes:** Never run `lichess-bot.py` manually in the background while the systemd service is also running.
+
+## Adding/updating the opening book
+
+```bash
+wget https://github.com/michaeldv/donna_opening_books/raw/master/gm2600.bin \
+     -O /home/bertrand/chess-c/book.bin
+sudo systemctl restart lichess-bot
+```
+
+## Testing
+
+Always run `make test` after touching `board.c`, `search.c`, or `uci.c` — a move generation bug will corrupt everything silently.
+
+Known perft values (startpos):
+- depth 1 → 20
+- depth 2 → 400
+- depth 3 → 8902
+- depth 4 → 197281
+- depth 5 → 4865609
+
+## A/B perf benchmark
+
+In-repo bench for measuring perf changes without resorting to gauntlet matches. Useful as a fast pre-flight before any change to `board.c`, `search.c`, or `eval.c`.
+
+```bash
+make bench-baseline                           # snapshots current binary as chess-engine-c.baseline
+# edit code
+make bench-compare BENCH_DEPTH=10 BENCH_RUNS=5  # interleaves baseline ↔ current, reports min-time delta
+make bench BENCH_DEPTH=10                     # standalone single run
+```
+
+The Pi 4 throttles aggressively (`vcgencmd get_throttled` is checked and warned). The compare script interleaves A↔B per iteration to keep both binaries on the same thermal state, then headlines the **min** time of each. `total_nodes` is deterministic by construction (single thread, TT cleared between positions, no time pressure) — if it differs after a change, the script flags ⚠ "search tree changed" so pure-perf claims can be distinguished from behavior shifts.
+
+Implementation: `src/bench.{c,h}` (positions + runner), `src/search.c::search_bench` (deterministic fixed-depth wrapper), UCI `bench [depth]` command, `tools/bench_compare.sh` (interleaved-min runner). Foot-gun: `make clean` deletes `chess-engine-c.baseline`, so snapshot the baseline AFTER any clean rebuild and BEFORE editing.

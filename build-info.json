@@ -1,0 +1,49 @@
+{
+  "build_date": "2026-05-17",
+  "version": "tier1-2026-05-17-pm",
+  "summary": "Correctness hardening + LMP/futility pruning. A/B-validated; 1 proposal rejected with data.",
+  "kept": [
+    {
+      "name": "TT XOR-key + zero-key sentinel",
+      "kind": "correctness",
+      "impact": "SMP race-safety: rejects torn writes from concurrent threads. Empty slots no longer collide with hash=0.",
+      "ab_result": "perf-neutral (single XOR per probe/store)"
+    },
+    {
+      "name": "TT aging (generation counter)",
+      "kind": "quality",
+      "impact": "Stale entries from earlier moves of the same game are freely replaceable; deep results from move N-30 stop crowding out fresh ones from move N.",
+      "ab_result": "bench-neutral; benefit only visible cross-go (production)"
+    },
+    {
+      "name": "Forced-move shortcut",
+      "kind": "quality",
+      "impact": "If only one legal move exists at root, return immediately. Saves the entire clock budget for the next decision.",
+      "ab_result": "n/a (no-op on bench positions, real win in forced recaptures)"
+    },
+    {
+      "name": "Late Move Pruning",
+      "kind": "search-efficiency",
+      "impact": "At depth<=4, skip late quiet moves entirely (well-ordered list rarely hides the best move late). Threshold: searched >= 3 + depth*depth.",
+      "ab_result": "fixed-depth bench: -44.3% wall time, -62% nodes. Timed bench: +4 plies depth (+3.1%) at 2s budget. Best-move check: 5/8 same, 1 strictly better (queen vs rook promo), 2 reasonable alternates."
+    },
+    {
+      "name": "Frontier futility pruning",
+      "kind": "search-efficiency",
+      "impact": "At depth==1, skip quiet moves when static_eval + 200cp <= alpha (can't plausibly raise alpha). First move always searched.",
+      "ab_result": "-2.4% wall time, -4.5% nodes vs LMP-only. 8/8 same best move."
+    },
+    {
+      "name": "Hash UCI option max raised to 4096 MB",
+      "kind": "ergonomics",
+      "impact": "Was 512; prod uses 384 so was already near cap. Lets us scale up if a future Pi has more RAM.",
+      "ab_result": "n/a"
+    }
+  ],
+  "rejected": [
+    {
+      "name": "Qsearch TT probe + store",
+      "reason": "Depth-fixed bench was favorable (-9% time), but timed bench at 500ms showed -13% depth reached. Root cause: Pi 4's slow RAM makes the extra probe-per-qnode (60-80% of all nodes) expensive, and the strict 'depth>=' replacement rule prevents qsearch's depth=0 entries from actually storing in most slots. Net negative on this hardware."
+    }
+  ]
+}

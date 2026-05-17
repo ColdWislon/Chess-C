@@ -1,0 +1,28 @@
+# Build artifacts
+chess-engine-c
+chess-engine-c-dbg
+chess-engine-c.baseline
+*.o
+*.d
+
+# Opening books (re-downloadable; see CLAUDE.md)
+book.bin
+book.bin.bak
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Secrets — should never be in-tree, but defense in depth
+.env
+*.env
+!*.env.example
+chess-dashboard.env
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

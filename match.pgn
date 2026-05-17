@@ -1,0 +1,118 @@
+[Event "?"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "1"]
+[White "ChessEngine-C"]
+[Black "ChessEngine-Rust"]
+[Result "1/2-1/2"]
+
+1. e3 Nf6 2. Nf3 d5 3. Ne5 Nc6 4. Bb5 Bd7 5. Bxc6 Bxc6 6. Nc3 Qd6 7. d4 a6 8. O-O Nd7 9. Nxd7 Qxd7 10. Qf3 e6 11. Ne2 Bb4 12. Nf4 O-O 13. Nd3 Bd6 14. Bd2 Ba4 15. c3 Bc6 16. b4 Rad8 17. g4 Bb5 18. e4 e5 19. exd5 e4 20. Qxe4 Bxd3 21. Qxd3 Qxg4+ 22. Kh1 Qh5 23. f4 Qxd5+ 24. Rf3 c5 25. dxc5 Qxd3 26. Rxd3 Bxc5 27. Rxd8 Rxd8 28. bxc5 Rxd2 29. Rb1 Rxa2 30. Rxb7 Ra1+ 31. Kg2 Ra2+ 32. Kg1 Ra1+ 33. Kg2 Ra2+ 34. Kg1 Ra1+ 1/2-1/2
+
+[Event "?"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "2"]
+[White "ChessEngine-Rust"]
+[Black "ChessEngine-C"]
+[Result "1/2-1/2"]
+[FEN "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"]
+[SetUp "1"]
+
+1... e5 2. Nf3 Nc6 3. d4 Nf6 4. dxe5 Nxe4 5. Bd3 Nc5 6. Nc3 Ne6 7. O-O Bb4 8. Nd5 d6 9. Bb5 Bd7 10. Bxc6 Bxc6 11. Nxb4 Bxf3 12. Qxf3 Nd4 13. Qe4 dxe5 14. Qxe5+ Ne6 15. Qb5+ Kf8 16. Qxb7 Nd4 17. Bg5 f6 18. Bd2 c5 19. Nc6 Nxc6 20. Qxc6 g5 21. Qxc5+ Qe7 22. Qc6 Kg7 23. Qc3 Rhc8 24. Qf3 a5 25. Rfe1 Qc7 26. Rac1 Ra6 27. Bc3 Rd6 28. Qf5 Rf8 29. Qxg5+ Kh8 30. Qxa5 Qxa5 31. Bxa5 Rd4 32. Bb6 Rd2 33. Re7 Ra8 34. Be3 Rdd8 35. a3 Rab8 36. Rb1 Rxb2 37. Rc1 Rxc2 38. Ra1 Ra2 39. Re8+ Kg7 40. Re7+ Kg6 41. Rb1 Rxa3 42. Bb6 Rb8 43. Rd7 Rxb6 44. Rf1 Rc3 45. f4 Rc5 46. Re1 Rcb5 47. Rf1 f5 48. Rdd1 Rb2 49. Rd3 Rb1 50. Rdd1 Rxd1 51. Rxd1 Kg7 52. Rd7+ Kh6 53. Rd1 Kg7 54. Rd7+ Kh6 55. Rd1 1/2-1/2
+
+[Event "?"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "3"]
+[White "ChessEngine-C"]
+[Black "ChessEngine-Rust"]
+[Result "1/2-1/2"]
+[FEN "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq - 0 1"]
+[SetUp "1"]
+
+1... Nc6 2. Nc3 d5 3. e4 dxe4 4. Bb5 Bd7 5. Nxe4 Nxd4 6. Qxd4 Bxb5 7. Qe5 Ba4 8. Nf3 Bxc2 9. O-O Bxe4 10. Qxe4 Qb8 11. Bg5 h6 12. Be3 Nf6 13. Qd3 e6 14. b4 Bxb4 15. Qb5+ c6 16. Qxb4 Nd5 17. Qe4 Nxe3 18. Qxe3 O-O 19. Nd4 c5 20. Nf3 Qc7 21. Qe2 Rae8 22. Rae1 c4 23. Ne5 c3 24. Nc4 Rc8 25. Na3 a6 26. Nc2 Qc4 27. Qxc4 Rxc4 28. f4 Rc6 29. Rd1 Rc7 30. Rd3 Ra8 31. Rff3 Rac8 32. a4 Rc4 33. Rd7 R8c7 34. Rxc7 Rxc7 35. Rd3 a5 36. Rd8+ Kh7 37. h3 b6 38. Rf8 f5 39. Rb8 Rc6 40. h4 Rd6 41. Rc8 Rd1+ 42. Kh2 Rf1 43. Rc4 Rf2 44. Ne3 Ra2 45. h5 Ra1 46. g3 Ra2+ 47. Kg1 Ra1+ 48. Kh2 Ra2+ 49. Kg1 Ra1+ 1/2-1/2
+
+[Event "?"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "4"]
+[White "ChessEngine-Rust"]
+[Black "ChessEngine-C"]
+[Result "1/2-1/2"]
+[FEN "rnbqkbnr/pppppppp/8/8/2P5/8/PP1PPPPP/RNBQKBNR b KQkq - 0 1"]
+[SetUp "1"]
+
+1... Nc6 2. Nc3 e5 3. Nf3 Nf6 4. Qa4 a5 5. d3 Bb4 6. Bd2 O-O 7. e4 d6 8. Be2 Bg4 9. O-O h6 10. Qc2 h5 11. a3 Bxf3 12. Bxf3 Bc5 13. Qd1 Bd4 14. Bxh5 a4 15. Bg4 Ne7 16. Bh3 Qe8 17. Qc2 d5 18. cxd5 g5 19. Bxg5 Nh5 20. Bxe7 Qxe7 21. Nxa4 Nf4 22. Bg4 b5 23. Nc3 b4 24. axb4 Qxb4 25. Rxa8 Rxa8 26. g3 Ng6 27. Kg2 Bc5 28. f4 exf4 29. gxf4 Be3 30. f5 Ne5 31. Be2 Rb8 32. Nd1 Bc5 33. Nf2 Qxb2 34. Qxc5 Qxe2 35. Qe7 Qf3+ 36. Kg1 Qf4 37. d4 Nf3+ 38. Kg2 Nh4+ 39. Kg1 Nf3+ 40. Kg2 Nh4+ 41. Kg1 1/2-1/2
+
+[Event "?"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "5"]
+[White "ChessEngine-C"]
+[Black "ChessEngine-Rust"]
+[Result "1-0"]
+[FEN "rnbqkbnr/pppppppp/8/8/5P2/8/PPPPP1PP/RNBQKBNR b KQkq - 0 1"]
+[SetUp "1"]
+
+1... Nf6 2. c4 d5 3. cxd5 Nxd5 4. e4 Nxf4 5. d4 Ng6 6. Nc3 Nd7 7. Nf3 c5 8. dxc5 Nxc5 9. Qxd8+ Kxd8 10. Be3 e5 11. Bb5 Ne6 12. a3 Bc5 13. Bxc5 Nxc5 14. Ng5 Be6 15. Nxe6+ Nxe6 16. Rd1+ Ke7 17. Rd7+ Kf8 18. Bc4 Ngf4 19. Bxe6 fxe6 20. g3 Ng6 21. O-O+ Kg8 22. Rff7 b6 23. Rxg7+ Kf8 24. Nb5 a6 25. Rdf7+ Ke8 26. Nd6+ Kd8 27. Rd7# 1-0
+
+[Event "?"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "6"]
+[White "ChessEngine-Rust"]
+[Black "ChessEngine-C"]
+[Result "1/2-1/2"]
+[FEN "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"]
+[SetUp "1"]
+
+2. Nc3 Nf6 3. Nf3 Nc6 4. Bb5 Bb4 5. O-O Bxc3 6. dxc3 Nxe4 7. Bxc6 bxc6 8. Nxe5 Bb7 9. Qg4 d6 10. Qxe4 dxe5 11. Qxe5+ Kf8 12. Be3 Kg8 13. Bd4 Qf8 14. Qxc7 Ba6 15. Rfe1 Rc8 16. Qxa7 Ra8 17. Qd7 c5 18. Be5 Rd8 19. Qc6 Bc8 20. c4 Be6 21. Rad1 Rc8 22. Qe4 f6 23. Bd6 Qf7 24. Qxe6 Qxe6 25. Rxe6 Kf7 26. Re7+ Kg6 27. Bf4 Ra8 28. a3 h6 29. Rdd7 Rhg8 30. Rc7 Rad8 31. Red7 Kh7 32. h3 Rxd7 33. Rxd7 Re8 34. Be3 Rb8 35. b3 Re8 36. Bxc5 f5 37. Bd4 Rg8 38. Be5 f4 39. Bxf4 Rf8 40. Be5 Rg8 41. c5 Kg6 42. c6 Kf5 43. Bxg7 Kg5 44. c7 Kg6 45. Rd8 Kxg7 46. Rxg8+ Kxg8 47. c8=Q+ Kf7 48. Qg4 Kf6 49. Qf4+ Kg6 50. Qg3+ Kf5 51. Qg7 h5 52. Qh6 Ke5 53. Qxh5+ Ke6 54. Qh7 Kd6 55. Qb7 Ke6 56. Qh7 Kd6 57. Qb7 Ke6 1/2-1/2
+
+[Event "?"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "7"]
+[White "ChessEngine-C"]
+[Black "ChessEngine-Rust"]
+[Result "0-1"]
+[FEN "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"]
+[SetUp "1"]
+
+2. Nc3 Nc6 3. Bc4 Ne5 4. Bb5 a6 5. d4 Ng6 6. Bf1 cxd4 7. Qxd4 e5 8. Qa4 Nf6 9. h3 Qb6 10. a3 Bc5 11. Nd1 Qc6 12. Qxc6 dxc6 13. Nc3 Bd4 14. Nge2 O-O 15. Bg5 Nd7 16. Nxd4 exd4 17. Ne2 c5 18. Nf4 Nxf4 19. Bxf4 Re8 20. f3 Ne5 21. Bxe5 Rxe5 22. O-O-O Be6 23. Kb1 Rg5 24. a4 Rd8 25. f4 Rg3 26. f5 Bd7 27. a5 Bc6 28. Re1 Re8 29. Bd3 Rxg2 30. f6 gxf6 31. h4 Rg4 32. Rhg1 h5 33. Be2 Rxe4 34. Bxg4 Rxe1+ 35. Rxe1 hxg4 36. Rg1 Bf3 37. Rf1 f5 38. h5 c4 39. Re1 Be4 40. h6 Kh7 41. Rd1 d3 42. cxd3 Bxd3+ 43. Ka2 Kxh6 44. Ka1 Kg7 45. Rg1 Kg8 46. Ka2 Be4 47. Ka1 Bd3 48. Re1 Kf8 49. Re3 f4 50. Re1 f3 51. Rh1 f2 52. Rh8+ Kg7 53. Rh1 g3 54. b3 g2 55. Rb1 Bxb1 56. Kxb1 f1=Q+ 57. Kb2 g1=Q 58. Ka3 Qd3 59. Ka2 Qgb1+ 60. Ka3 b6 61. axb6 Qe1 62. b7 a5 63. b8=Q Qa1# 0-1
+
+[Event "?"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "8"]
+[White "ChessEngine-Rust"]
+[Black "ChessEngine-C"]
+[Result "1/2-1/2"]
+[FEN "rnbqkbnr/ppp1pppp/8/3p4/2PP4/8/PP2PPPP/RNBQKBNR b KQkq - 0 2"]
+[SetUp "1"]
+
+2... dxc4 3. e3 e5 4. Bxc4 Nc6 5. Nf3 e4 6. Nfd2 Nf6 7. O-O h6 8. Nc3 a5 9. Ndxe4 Nxe4 10. Nxe4 h5 11. Ng3 g6 12. Qd3 Qh4 13. e4 f6 14. Ne2 Nb4 15. Qf3 c6 16. Be3 Nc2 17. g3 Bg4 18. Qh1 Bxe2 19. gxh4 Bxc4 20. Rfc1 Nxa1 21. Rxc4 Bh6 22. Rc1 Bxe3 23. fxe3 Nb3 24. axb3 O-O 25. Qf3 Rae8 26. Qg3 Kg7 27. Qc7+ Rf7 28. Qxa5 Rxe4 29. Kf2 Rfe7 30. Re1 Rxh4 31. Qc5 Rhe4 32. b4 h4 33. b5 cxb5 34. Qxb5 h3 35. Qc5 g5 36. d5 R4e5 37. Qd4 Re4 38. Qd1 R7e5 39. Qb3 Re7 40. d6 Rd7 41. Qb5 Rf7 42. d7 Re5 43. Qd3 Rf8 44. d8=Q Rxd8 45. Qxd8 b5 46. Kg3 b4 47. Qb8 Rf5 48. Qxb4 Kh6 49. Qb7 Rc5 50. Rf1 Kg6 51. Qe7 Rf5 52. Qe4 Kf7 53. Qxf5 Ke8 54. Qxf6 Kd7 55. Qg7+ Kd6 56. Kxh3 Kc5 57. e4 Kc4 58. Kg2 Kd3 59. Re1 Kc4 60. Qxg5 Kb4 61. Rd1 Kb3 62. Qf6 Ka4 63. Ra1+ Kb5 64. Ra7 Kb4 65. Qc6 Kb3 66. Qc1 Kb4 67. Qc6 Kb3 68. Qc1 Kb4 1/2-1/2
+
+[Event "?"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "9"]
+[White "ChessEngine-C"]
+[Black "ChessEngine-Rust"]
+[Result "1/2-1/2"]
+[FEN "rnbqkb1r/pppp1ppp/5n2/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"]
+[SetUp "1"]
+
+3. Nxe5 Bd6 4. d4 Bxe5 5. dxe5 Nxe4 6. Nd2 Nxd2 7. Qxd2 Nc6 8. Qg5 Qxg5 9. Bxg5 Nxe5 10. Bb5 a6 11. f4 Nf3+ 12. gxf3 axb5 13. O-O-O f6 14. Kb1 fxg5 15. Rhe1+ Kd8 16. fxg5 Rb8 17. Re5 Rf8 18. Rf1 d6 19. Rxb5 Bh3 20. Rc1 Rxf3 21. Rb4 Rf2 22. Rh4 Bf5 23. Rh5 Bg6 24. Rh4 Rg2 25. Rf4 Rxh2 26. Rf8+ Be8 27. Rff1 Rh5 28. Rg1 Kc8 29. Rcf1 d5 30. Rf5 d4 31. Rd5 Rh4 32. Rd1 Bg6 33. R1xd4 Rxd4 34. Rxd4 Ra8 35. b4 Bf7 36. Rf4 Bxa2+ 37. Kb2 Ra4 38. c4 Kb8 39. Rh4 h6 40. gxh6 gxh6 41. Re4 Ka7 42. Rh4 b6 43. Re4 Kb7 44. Rh4 Ka7 45. Kc3 Ra3+ 46. Kb2 1/2-1/2
+
+[Event "?"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "10"]
+[White "ChessEngine-Rust"]
+[Black "ChessEngine-C"]
+[Result "0-1"]
+[FEN "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"]
+[SetUp "1"]
+
+3. Nc3 Bb4 4. Nd5 Nf6 5. Nxb4 Nxb4 6. Nxe5 Nxe4 7. d4 Qe7 8. Bb5 Nxc2+ 9. Qxc2 Qb4+ 10. Kd1 Qxd4+ 11. Nd3 Qd5 12. f3 Qxb5 13. fxe4 d6 14. Be3 O-O 15. Kc1 Bg4 16. h3 Bd7 17. Kb1 c5 18. Bf4 c4 19. Nf2 d5 20. exd5 Qxd5 21. Rd1 Qc6 22. Rd4 b5 23. Ne4 Bf5 24. a4 Rfe8 25. axb5 Qxe4 26. Qxe4 Bxe4+ 27. Ka2 Bxg2 28. Rad1 Bxh3 29. Rg1 Be6 30. Ka1 Red8 31. Be5 g6 32. Bd6 Re8 33. Re1 Rac8 34. Rdd1 Bg4 35. Rc1 Rxe1 36. Rxe1 Rd8 37. Bc5 g5 38. Bxa7 Ra8 39. Re7 Be6 40. Kb1 Rd8 41. Be3 h6 42. Rc7 Rd3 43. Bc1 Rf3 44. Ra7 Rf1 45. Ra8+ Kg7 46. Ra1 Rg1 47. b6 Bd5 48. Kc2 Rg3 49. Kb1 Be4+ 50. Ka2 Rd3 51. b7 Bxb7 52. Kb1 Be4 53. Ka2 Bg6 54. b3 cxb3+ 55. Kb2 Rf3 56. Ra7 Be4 57. Rd7 Kh7 58. Re7 Bd5 59. Be3 Rg3 60. Re5 Rg2+ 61. Kb1 Bc4 62. Bd4 Bd3+ 63. Kc1 Rc2+ 64. Kd1 b2 65. Bxb2 Rxb2 66. Re3 Bf5 67. Ke1 Bg4 68. Kf1 Be6 69. Kg1 Rb1+ 70. Kf2 Ra1 71. Rc3 Rh1 72. Rc5 Rh4 73. Kg1 Rg4+ 74. Kf1 Bc4+ 75. Kf2 Rd4 76. Rc7 Bd5 77. Rd7 Rf4+ 78. Kg1 Bc6 79. Rc7 Be4 80. Rc4 Kg7 81. Ra4 Kg8 82. Rb4 Kg7 83. Rd4 Rg4+ 84. Kf2 Bf5 85. Rd1 Be4 86. Rd4 Rg2+ 87. Kf1 Bf3 88. Rd3 g4 89. Re3 Rc2 90. Re7 g3 91. Ke1 Rc1+ 92. Kd2 g2 93. Kxc1 g1=Q+ 94. Kb2 Qd4+ 95. Ka2 Bd5+ 96. Kb1 Qb4+ 97. Kc1 Qxe7 98. Kb2 Qe1 99. Kc2 Qe3 100. Kd1 Bb3# 0-1
+

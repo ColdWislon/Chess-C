@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lichess Bot Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --card2: #1f2333;
+    --accent: #3b4fd8;
+    --green: #4ade80;
+    --red: #f87171;
+    --yellow: #facc15;
+    --blue: #60a5fa;
+    --purple: #c084fc;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --border: #2a2f45;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; padding: 24px 28px; max-width: 1100px; margin: 0 auto; }
+
+  h2 { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); margin-bottom: 14px; }
+
+  /* ---- header ---- */
+  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; flex-wrap: wrap; gap: 12px; }
+  .header-left { display: flex; align-items: center; gap: 14px; }
+  h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.5px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .dot.online { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+  .status-label { font-size: 0.8rem; color: var(--muted); }
+  .playtime-badge { font-size: 0.8rem; color: var(--muted); background: var(--card); border: 1px solid var(--border); padding: 4px 10px; border-radius: 20px; }
+
+  /* ---- stat grid ---- */
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+  .stat-value { font-size: 1.9rem; font-weight: 700; line-height: 1; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+  .stat-label { font-size: 0.76rem; color: var(--muted); }
+  .stat-sub { font-size: 0.72rem; color: var(--muted); margin-top: 3px; }
+  .prog-up { color: var(--green); font-size: 0.7rem; }
+  .prog-dn { color: var(--red); font-size: 0.7rem; }
+
+  /* ---- win bar ---- */
+  .win-bar-wrap { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 20px; }
+  .win-bar { display: flex; height: 10px; border-radius: 6px; overflow: hidden; margin: 10px 0 8px; }
+  .win-bar .seg-win  { background: var(--green); }
+  .win-bar .seg-draw { background: var(--yellow); }
+  .win-bar .seg-loss { background: var(--red); }
+  .win-legend { display: flex; gap: 16px; font-size: 0.76rem; }
+  .legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+
+  /* ---- ratings row ---- */
+  .ratings-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+  .tc-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; flex: 1; min-width: 110px; }
+  .tc-label { font-size: 0.72rem; color: var(--muted); text-transform: capitalize; }
+  .tc-rating { font-size: 1.4rem; font-weight: 700; }
+  .tc-games { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+
+  /* ---- board / game ---- */
+  .board-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+  .board-wrap { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+  .board-embed { border-radius: 8px; overflow: hidden; flex-shrink: 0; }
+  .board-embed iframe { display: block; border: none; border-radius: 8px; }
+  .game-meta { flex: 1; min-width: 200px; }
+  .meta-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.875rem; }
+  .meta-row:last-child { border-bottom: none; }
+  .meta-key { color: var(--muted); }
+
+  /* ---- engine realtime ---- */
+  .engine-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; transition: border-color 0.15s; }
+  .engine-card.thinking { border-color: var(--accent); }
+  .engine-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  .live-badge { font-size: 0.65rem; font-weight: 700; background: #dc2626; color: #fff; padding: 2px 7px; border-radius: 4px; letter-spacing: 0.08em; animation: pulse 1.2s infinite; }
+  .engine-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .engine-stat { text-align: center; }
+  .engine-val { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; transition: color 0.2s; }
+  .engine-key { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+  .engine-sub { font-size: 0.7rem; color: var(--muted); margin-top: 1px; }
+  .score-pos { color: var(--green); }
+  .score-neg { color: var(--red); }
+  .score-zero { color: var(--muted); }
+
+  /* secondary engine stats row */
+  .engine-grid-mini { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .engine-mini { text-align: center; min-width: 0; }
+  .mini-val { font-size: 0.95rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .mini-key { font-size: 0.65rem; color: var(--muted); margin-top: 1px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .mini-bar { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; margin-top: 4px; }
+  .mini-bar-fill { height: 100%; background: var(--blue); transition: width 0.3s, background 0.3s; }
+  @media (max-width: 720px) { .engine-grid-mini { grid-template-columns: repeat(3, 1fr); } }
+
+  /* ---- tooltips ---- */
+  .tip { position: relative; cursor: help; }
+  .tip::before, .tip::after {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 100;
+  }
+  .tip::after {
+    content: attr(data-tip);
+    bottom: calc(100% + 8px);
+    width: max-content;
+    max-width: 260px;
+    background: #0b0d14;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 11px;
+    border-radius: 6px;
+    font-size: 0.74rem;
+    font-weight: 400;
+    line-height: 1.4;
+    text-align: center;
+    white-space: normal;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+  }
+  .tip::before {
+    content: "";
+    bottom: calc(100% + 2px);
+    border: 6px solid transparent;
+    border-top-color: var(--border);
+  }
+  .tip:hover::before, .tip:hover::after { opacity: 1; }
+
+  /* score bar */
+  .score-bar-wrap { margin-top: 14px; }
+  .score-bar-track { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .score-bar-fill { height: 100%; background: var(--green); border-radius: 3px; transition: width 0.3s, background 0.3s; width: 50%; }
+  .score-bar-label { display: flex; justify-content: space-between; font-size: 0.68rem; color: var(--muted); margin-top: 4px; }
+
+  /* ---- idle ---- */
+  .idle-msg { color: var(--muted); font-style: italic; text-align: center; padding: 32px 0; font-size: 0.9rem; }
+
+  /* ---- recent games ---- */
+  .games-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+  .game-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; flex-wrap: wrap; }
+  .game-row:last-child { border-bottom: none; }
+  .result-badge { padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 0.72rem; flex-shrink: 0; min-width: 36px; text-align: center; }
+  .win  { background: #14532d; color: var(--green); }
+  .loss { background: #450a0a; color: var(--red); }
+  .draw { background: #44403c; color: var(--yellow); }
+  .game-link { color: var(--text); text-decoration: none; font-weight: 500; }
+  .game-link:hover { color: var(--green); text-decoration: underline; }
+  .opp-rating { color: var(--muted); font-size: 0.78rem; }
+  .tag { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 600; background: #1e3a5f; color: var(--blue); max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tc-tag { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 600; background: #2d1a4a; color: var(--purple); }
+  .game-time { color: var(--muted); font-size: 0.73rem; margin-left: auto; white-space: nowrap; }
+
+  /* ---- build info ---- */
+  .build-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+  .build-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; flex-wrap: wrap; gap: 8px; }
+  .build-version { font-size: 0.78rem; color: var(--muted); font-family: 'Fira Mono', monospace; }
+  .build-summary { font-size: 0.85rem; color: var(--text); margin-bottom: 14px; }
+  .change-row { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .change-row:last-child { border-bottom: none; }
+  .change-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+  .change-name { font-weight: 600; font-size: 0.88rem; }
+  .change-kind { font-size: 0.62rem; padding: 1px 6px; border-radius: 3px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  .kind-correctness { background: #1e3a5f; color: var(--blue); }
+  .kind-quality { background: #2d1a4a; color: var(--purple); }
+  .kind-search-efficiency { background: #14532d; color: var(--green); }
+  .kind-ergonomics { background: #44403c; color: var(--yellow); }
+  .kind-rejected { background: #450a0a; color: var(--red); }
+  .change-impact { font-size: 0.78rem; color: var(--text); line-height: 1.4; margin-bottom: 4px; }
+  .change-ab { font-size: 0.72rem; color: var(--muted); font-family: 'Fira Mono', monospace; line-height: 1.4; }
+  .rejected-header { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+
+  /* ---- log ---- */
+  .log-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+  .log-body { font-family: 'Fira Mono', 'Consolas', monospace; font-size: 0.76rem; max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+  .log-entry { display: flex; gap: 10px; align-items: baseline; padding: 3px 6px; border-radius: 4px; }
+  .log-entry:hover { background: rgba(255,255,255,0.04); }
+  .log-ts { color: var(--muted); flex-shrink: 0; }
+  .log-msg { flex: 1; }
+  .log-entry.challenge .log-msg { color: var(--blue); }
+  .log-entry.declined  .log-msg { color: var(--red); }
+  .log-entry.game      .log-msg { color: var(--green); font-weight: 600; }
+  .log-entry.finished  .log-msg { color: var(--yellow); }
+  .log-entry.connected .log-msg { color: var(--muted); font-style: italic; }
+  .log-entry.error     .log-msg { color: var(--muted); }
+
+  .refresh-note { text-align: center; color: var(--muted); font-size: 0.72rem; margin-top: 8px; }
+
+  /* ---- bot tabs ---- */
+  .bot-tabs { display: flex; gap: 6px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
+  .bot-tab { background: transparent; color: var(--muted); border: none; padding: 10px 18px; font-size: 0.88rem; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s; font-family: inherit; }
+  .bot-tab:hover { color: var(--text); }
+  .bot-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .bot-tab .engine-tag { font-size: 0.68rem; font-weight: 500; color: var(--muted); margin-left: 6px; padding: 1px 6px; border-radius: 3px; background: var(--card2); }
+  .bot-tab.active .engine-tag { background: var(--accent); color: #fff; }
+</style>
+</head>
+<body>
+
+<div class="bot-tabs" id="bot-tabs"></div>
+
+<div class="header">
+  <div class="header-left">
+    <h1 id="bot-title">♟</h1>
+    <div style="display:flex;align-items:center;gap:8px">
+      <div class="dot" id="dot"></div>
+      <span class="status-label" id="status-label">connecting…</span>
+    </div>
+  </div>
+  <div class="playtime-badge" id="playtime-badge" style="display:none"></div>
+</div>
+
+<!-- Stat cards -->
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-value" id="rapid-rating">—</div>
+    <div class="stat-label">Rapid rating</div>
+    <div class="stat-sub" id="rapid-prog"></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" id="games-played">—</div>
+    <div class="stat-label">Games played</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" id="win-count" style="color:var(--green)">—</div>
+    <div class="stat-label">Wins</div>
+    <div class="stat-sub" id="win-pct"></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" id="loss-count" style="color:var(--red)">—</div>
+    <div class="stat-label">Losses</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value" id="draw-count" style="color:var(--yellow)">—</div>
+    <div class="stat-label">Draws</div>
+  </div>
+</div>
+
+<!-- Win/Draw/Loss bar -->
+<div class="win-bar-wrap" id="win-bar-wrap" style="display:none">
+  <h2>Record</h2>
+  <div class="win-bar">
+    <div class="seg-win" id="seg-win" style="width:0%"></div>
+    <div class="seg-draw" id="seg-draw" style="width:0%"></div>
+    <div class="seg-loss" id="seg-loss" style="width:0%"></div>
+  </div>
+  <div class="win-legend">
+    <span><span class="legend-dot" style="background:var(--green)"></span><span id="leg-win">—</span> wins</span>
+    <span><span class="legend-dot" style="background:var(--yellow)"></span><span id="leg-draw">—</span> draws</span>
+    <span><span class="legend-dot" style="background:var(--red)"></span><span id="leg-loss">—</span> losses</span>
+  </div>
+</div>
+
+<!-- Per-TC ratings -->
+<div class="ratings-row" id="ratings-row" style="display:none"></div>
+
+<!-- Current game (board only) -->
+<div id="game-section" style="display:none">
+  <div class="board-card">
+    <h2>Current game</h2>
+    <div class="board-wrap">
+      <div class="board-embed">
+        <iframe id="board-frame" width="400" height="440" src=""></iframe>
+      </div>
+      <div class="game-meta" id="game-meta"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Idle hint -->
+<div id="idle-hint" class="board-card" style="display:none">
+  <p class="idle-msg">Bot is idle — challenge it on <a href="https://lichess.org/@/rpiBot73" target="_blank" style="color:var(--green)">lichess.org/@/rpiBot73</a></p>
+</div>
+
+<!-- Engine card (always visible if we have any stats) -->
+<div id="engine-section" style="display:none">
+  <div class="engine-card" id="engine-card">
+    <div class="engine-header">
+      <h2 style="margin:0">Engine</h2>
+      <span class="live-badge" id="live-badge" style="display:none">LIVE</span>
+    </div>
+    <div class="engine-grid">
+      <div class="engine-stat tip" data-tip="Plies of full alpha-beta search completed. ‘sel N’ = deepest ply reached including quiescence (capture-chain) extensions.">
+        <div class="engine-val" id="eng-depth">—</div>
+        <div class="engine-key">Depth</div>
+        <div class="engine-sub" id="eng-seldepth"></div>
+      </div>
+      <div class="engine-stat tip" data-tip="Position evaluation in pawns, from the side-to-move’s perspective. Positive = winning, negative = losing. Mate scores show as very large values.">
+        <div class="engine-val" id="eng-score">—</div>
+        <div class="engine-key">Score</div>
+      </div>
+      <div class="engine-stat tip" data-tip="Total positions visited during this iteration of iterative deepening. Larger numbers mean a wider tree; speed (NPS) tells you how fast.">
+        <div class="engine-val" id="eng-nodes">—</div>
+        <div class="engine-key">Nodes</div>
+        <div class="engine-sub" id="eng-nps"></div>
+      </div>
+    </div>
+    <div class="score-bar-wrap">
+      <div class="score-bar-track"><div class="score-bar-fill" id="score-bar"></div></div>
+      <div class="score-bar-label"><span>Black</span><span>Equal</span><span>White</span></div>
+    </div>
+    <div class="engine-grid-mini">
+      <div class="engine-mini tip" data-tip="Wall-clock time spent on this depth iteration. The engine stops iterating when ~60% of its allotted move time is consumed.">
+        <div class="mini-val" id="eng-time">—</div>
+        <div class="mini-key">Time</div>
+      </div>
+      <div class="engine-mini tip" data-tip="Fraction of transposition-table slots in use, sampled across the table. Green &lt; 50%, yellow 50–80%, red &gt; 80%. The subline is configured TT size in MB.">
+        <div class="mini-val" id="eng-hashfull">—</div>
+        <div class="mini-key">TT fill</div>
+        <div class="mini-bar"><div class="mini-bar-fill" id="bar-hashfull" style="width:0%"></div></div>
+        <div class="engine-sub" id="eng-hashmb"></div>
+      </div>
+      <div class="engine-mini tip" data-tip="Transposition-table hit rate: probes that found a stored entry for the same Zobrist hash. Higher = more reuse of prior search work.">
+        <div class="mini-val" id="eng-tthit">—</div>
+        <div class="mini-key">TT hit</div>
+        <div class="mini-bar"><div class="mini-bar-fill" id="bar-tthit" style="width:0%"></div></div>
+      </div>
+      <div class="engine-mini tip" data-tip="Move-ordering quality: share of beta cutoffs that fired on the very first move searched. &gt;85% means killer/history/MVV-LVA are picking the best moves first, so alpha-beta prunes early. Critical for search speed.">
+        <div class="mini-val" id="eng-ordering">—</div>
+        <div class="mini-key">Ordering</div>
+        <div class="mini-bar"><div class="mini-bar-fill" id="bar-ordering" style="width:0%"></div></div>
+      </div>
+      <div class="engine-mini tip" data-tip="Share of total nodes spent in quiescence — the capture-only extension at the leaves of the main search that resolves tactical sequences before evaluating.">
+        <div class="mini-val" id="eng-qpct">—</div>
+        <div class="mini-key">Q-nodes</div>
+        <div class="mini-bar"><div class="mini-bar-fill" id="bar-qpct" style="width:0%"></div></div>
+      </div>
+      <div class="engine-mini tip" data-tip="Successful null-move prunes: branches skipped because passing the turn still produced a score ≥ beta. A cheap way to skip clearly winning positions.">
+        <div class="mini-val" id="eng-nullcuts">—</div>
+        <div class="mini-key">Null cuts</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Build info -->
+<div class="build-card" id="build-card" style="display:none">
+  <div class="build-header">
+    <h2 style="margin:0">Engine build</h2>
+    <span class="build-version" id="build-version"></span>
+  </div>
+  <div class="build-summary" id="build-summary"></div>
+  <div id="build-changes"></div>
+</div>
+
+<!-- Activity log -->
+<div class="log-card">
+  <h2>Activity log</h2>
+  <div class="log-body" id="log-body"><p class="idle-msg">Loading…</p></div>
+</div>
+
+<!-- Recent games -->
+<div class="games-card">
+  <h2>Recent games</h2>
+  <div id="recent-games"><p class="idle-msg">Loading…</p></div>
+</div>
+
+<p class="refresh-note">Status refreshes every 5 s &middot; Engine updates in real time</p>
+
+<script>
+const fmt  = n => n == null ? '—' : n.toLocaleString();
+const fmtK = n => n == null ? '—' : n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(0)+'k' : String(n);
+const pct  = (n, total) => total > 0 ? (n / total * 100).toFixed(1) + '%' : '—';
+
+// ---- current bot selection (persists across reloads) ----
+let currentBot = localStorage.getItem('bot') || 'megabot73';
+
+function setBot(key) {
+  if (key === currentBot) return;
+  currentBot = key;
+  localStorage.setItem('bot', key);
+  renderTabs();
+  // Reset UI placeholders so stale data from prev bot doesn't linger
+  document.getElementById('rapid-rating').textContent = '—';
+  document.getElementById('games-played').textContent = '—';
+  document.getElementById('win-count').textContent = '—';
+  document.getElementById('loss-count').textContent = '—';
+  document.getElementById('draw-count').textContent = '—';
+  document.getElementById('log-body').innerHTML = '<p class="idle-msg">Loading…</p>';
+  document.getElementById('recent-games').innerHTML = '<p class="idle-msg">Loading…</p>';
+  // Restart SSE for new bot, refetch status/log
+  restartEngineStream();
+  refresh();
+  refreshLog();
+}
+
+function renderTabs() {
+  const tabs = document.getElementById('bot-tabs');
+  const bots = window._bots || [];
+  if (bots.length <= 1) { tabs.style.display = 'none'; return; }
+  tabs.style.display = '';
+  tabs.innerHTML = bots.map(b => `
+    <button class="bot-tab${b.key === currentBot ? ' active' : ''}" data-key="${b.key}">
+      ${b.name}<span class="engine-tag">${b.engine}</span>
+    </button>`).join('');
+  tabs.querySelectorAll('.bot-tab').forEach(btn => {
+    btn.addEventListener('click', () => setBot(btn.dataset.key));
+  });
+}
+
+function scoreClass(cp) {
+  if (cp == null) return '';
+  return cp > 50 ? 'score-pos' : cp < -50 ? 'score-neg' : 'score-zero';
+}
+
+function scoreText(cp) {
+  if (cp == null) return '—';
+  const pawns = cp / 100;
+  return (cp > 0 ? '+' : '') + pawns.toFixed(2);
+}
+
+function scoreBarPct(cp) {
+  if (cp == null) return 50;
+  // clamp cp to ±500 (5 pawns), map to 0–100%
+  const clamped = Math.max(-500, Math.min(500, cp));
+  return 50 + clamped / 10;
+}
+
+function gameResult(game, botName) {
+  const w = game.winner;
+  if (!w) return 'draw';
+  const botColor = game.players?.white?.user?.name?.toLowerCase() === botName.toLowerCase() ? 'white' : 'black';
+  return w === botColor ? 'win' : 'loss';
+}
+
+function timeAgo(ts) {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s/60)}m ago`;
+  if (s < 86400) return `${Math.floor(s/3600)}h ago`;
+  return `${Math.floor(s/86400)}d ago`;
+}
+
+function fmtPlayTime(seconds) {
+  if (!seconds) return null;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h >= 24) return `${Math.floor(h/24)}d ${h%24}h played`;
+  if (h > 0) return `${h}h ${m}m played`;
+  return `${m}m played`;
+}
+
+function renderMeta(game, botName) {
+  const botColor = game.players?.white?.user?.name?.toLowerCase() === botName.toLowerCase() ? 'white' : 'black';
+  const oppColor = botColor === 'white' ? 'black' : 'white';
+  const opp = game.players?.[oppColor]?.user?.name || 'Anonymous';
+  const oppRating = game.players?.[oppColor]?.rating;
+  const tc = game.clock ? `${game.clock.initial/60}+${game.clock.increment}` : (game.speed || '?');
+  const opening = game.opening?.name || '—';
+  const ratingStr = oppRating ? ` (${oppRating})` : '';
+  return `
+    <div class="meta-row"><span class="meta-key">Playing as</span><span>${botColor} ${botColor==='white'?'♔':'♚'}</span></div>
+    <div class="meta-row"><span class="meta-key">Opponent</span><span><a class="game-link" href="https://lichess.org/@/${opp}" target="_blank">${opp}</a>${ratingStr}</span></div>
+    <div class="meta-row"><span class="meta-key">Time control</span><span>${tc}</span></div>
+    <div class="meta-row"><span class="meta-key">Opening</span><span style="font-size:0.82rem">${opening}</span></div>
+    <div class="meta-row"><span class="meta-key">Watch live</span><span><a class="game-link" href="https://lichess.org/${game.id}" target="_blank">lichess.org/${game.id}</a></span></div>
+  `;
+}
+
+function renderRecent(games, botName) {
+  if (!games || games.length === 0) return '<p class="idle-msg">No recent games.</p>';
+  return games.map(g => {
+    const result = gameResult(g, botName);
+    const botColor = g.players?.white?.user?.name?.toLowerCase() === botName.toLowerCase() ? 'white' : 'black';
+    const oppColor = botColor === 'white' ? 'black' : 'white';
+    const opp = g.players?.[oppColor]?.user?.name || 'Anonymous';
+    const oppRating = g.players?.[oppColor]?.rating;
+    const ts = g.lastMoveAt || g.createdAt;
+    const tc = g.clock ? `${g.clock.initial/60}+${g.clock.increment}` : (g.speed || '');
+    const openingName = g.opening?.name ? g.opening.name.split(':')[0].trim() : null;
+    const ratingStr = oppRating ? ` <span class="opp-rating">(${oppRating})</span>` : '';
+    return `
+      <div class="game-row">
+        <span class="result-badge ${result}">${result.toUpperCase()}</span>
+        <a class="game-link" href="https://lichess.org/${g.id}" target="_blank">vs ${opp}</a>${ratingStr}
+        ${openingName ? `<span class="tag" title="${openingName}">${openingName}</span>` : ''}
+        ${tc ? `<span class="tc-tag">${tc}</span>` : ''}
+        <span class="game-time">${ts ? timeAgo(ts) : ''}</span>
+      </div>`;
+  }).join('');
+}
+
+function fmtMs(ms) {
+  if (ms == null) return '—';
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms/1000).toFixed(1)}s`;
+  return `${Math.floor(ms/60000)}m ${Math.floor((ms%60000)/1000)}s`;
+}
+
+function setBar(id, pct, colorVar) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.style.width = Math.max(0, Math.min(100, pct)) + '%';
+  if (colorVar) el.style.background = colorVar;
+}
+
+function updateEngineUI(d, live) {
+  const cp = d.score_cp;
+  document.getElementById('eng-depth').textContent = d.depth ?? '—';
+  document.getElementById('eng-seldepth').textContent = d.seldepth != null ? `sel ${d.seldepth}` : '';
+
+  const scoreEl = document.getElementById('eng-score');
+  scoreEl.textContent = scoreText(cp);
+  scoreEl.className = 'engine-val ' + scoreClass(cp);
+
+  document.getElementById('eng-nodes').textContent = fmtK(d.nodes);
+  document.getElementById('eng-nps').textContent = d.nps != null ? `${fmtK(d.nps)}/s` : '';
+
+  document.getElementById('score-bar').style.width = scoreBarPct(cp) + '%';
+  document.getElementById('score-bar').style.background = cp > 50 ? 'var(--green)' : cp < -50 ? 'var(--red)' : 'var(--muted)';
+
+  // Secondary stats
+  document.getElementById('eng-time').textContent = fmtMs(d.time);
+
+  // hashfull is permille (0-1000)
+  const hfPct = d.hashfull != null ? (d.hashfull / 10) : null;
+  document.getElementById('eng-hashfull').textContent = hfPct != null ? hfPct.toFixed(1) + '%' : '—';
+  setBar('bar-hashfull', hfPct ?? 0, hfPct > 80 ? 'var(--red)' : hfPct > 50 ? 'var(--yellow)' : 'var(--blue)');
+  document.getElementById('eng-hashmb').textContent = d.hashmb != null ? `${d.hashmb} MB` : '';
+
+  const tthit = d.ttprobes ? (d.tthits / d.ttprobes * 100) : null;
+  document.getElementById('eng-tthit').textContent = tthit != null ? tthit.toFixed(1) + '%' : '—';
+  setBar('bar-tthit', tthit ?? 0, 'var(--green)');
+
+  const ordering = d.cutoffs ? (d.cutoffs1 / d.cutoffs * 100) : null;
+  document.getElementById('eng-ordering').textContent = ordering != null ? ordering.toFixed(0) + '%' : '—';
+  setBar('bar-ordering', ordering ?? 0, ordering > 85 ? 'var(--green)' : ordering > 70 ? 'var(--yellow)' : 'var(--red)');
+
+  const qpct = d.nodes ? (d.qnodes / d.nodes * 100) : null;
+  document.getElementById('eng-qpct').textContent = qpct != null ? qpct.toFixed(0) + '%' : '—';
+  setBar('bar-qpct', qpct ?? 0, 'var(--purple)');
+
+  document.getElementById('eng-nullcuts').textContent = fmtK(d.nullcuts);
+
+  if (live) {
+    const card = document.getElementById('engine-card');
+    card.classList.add('thinking');
+    document.getElementById('live-badge').style.display = '';
+    clearTimeout(card._thinkTimer);
+    card._thinkTimer = setTimeout(() => {
+      card.classList.remove('thinking');
+      document.getElementById('live-badge').style.display = 'none';
+    }, 3000);
+  }
+}
+
+// ---- SSE for real-time engine ----
+let engineSource = null;
+
+function startEngineStream() {
+  if (engineSource) return;
+  engineSource = new EventSource(`/api/engine-stream?bot=${currentBot}`);
+  engineSource.onmessage = e => {
+    const d = JSON.parse(e.data);
+    updateEngineUI(d, true);
+  };
+  engineSource.onerror = () => {
+    engineSource.close();
+    engineSource = null;
+    setTimeout(startEngineStream, 4000);
+  };
+}
+
+function restartEngineStream() {
+  if (engineSource) { engineSource.close(); engineSource = null; }
+  startEngineStream();
+}
+
+// ---- log ----
+async function refreshLog() {
+  let entries;
+  try { entries = await (await fetch(`/api/log?bot=${currentBot}`)).json(); }
+  catch(e) { return; }
+  const body = document.getElementById('log-body');
+  if (!entries.length) { body.innerHTML = '<p class="idle-msg">No activity yet.</p>'; return; }
+  body.innerHTML = entries.map(e => {
+    const time = e.ts.replace('T',' ').slice(11,19);
+    return `<div class="log-entry ${e.kind}"><span class="log-ts">${time}</span><span class="log-msg">${e.msg}</span></div>`;
+  }).join('');
+}
+
+// ---- main status poll ----
+async function refresh() {
+  let data;
+  try { data = await (await fetch(`/api/status?bot=${currentBot}`)).json(); }
+  catch(e) { document.getElementById('status-label').textContent = 'Server unreachable'; return; }
+
+  // Header
+  document.getElementById('bot-title').textContent = `♟ ${data.bot} (${data.engine_stats})`;
+  document.getElementById('dot').className = 'dot' + (data.online ? ' online' : '');
+  document.getElementById('status-label').textContent = data.online ? 'Online' : 'Offline';
+  const pt = fmtPlayTime(data.play_time_seconds);
+  const ptEl = document.getElementById('playtime-badge');
+  if (pt) { ptEl.textContent = pt; ptEl.style.display = ''; } else { ptEl.style.display = 'none'; }
+
+  // Main stats
+  document.getElementById('rapid-rating').textContent = data.rating ?? '—';
+  document.getElementById('games-played').textContent = fmt(data.games_played);
+  document.getElementById('win-count').textContent = fmt(data.wins);
+  document.getElementById('loss-count').textContent = fmt(data.losses);
+  document.getElementById('draw-count').textContent = fmt(data.draws);
+  document.getElementById('win-pct').textContent = pct(data.wins, data.games_played) + ' win rate';
+
+  // Ratings progression
+  const ratings = data.ratings || {};
+  const rapidPerf = ratings['rapid'];
+  if (rapidPerf?.prog != null && rapidPerf.prog !== 0) {
+    const el = document.getElementById('rapid-prog');
+    el.innerHTML = rapidPerf.prog > 0
+      ? `<span class="prog-up">▲ ${rapidPerf.prog} this week</span>`
+      : `<span class="prog-dn">▼ ${Math.abs(rapidPerf.prog)} this week</span>`;
+  }
+
+  // Win bar
+  const total = (data.wins || 0) + (data.losses || 0) + (data.draws || 0);
+  if (total > 0) {
+    document.getElementById('win-bar-wrap').style.display = '';
+    document.getElementById('seg-win').style.width = pct(data.wins, total);
+    document.getElementById('seg-draw').style.width = pct(data.draws, total);
+    document.getElementById('seg-loss').style.width = pct(data.losses, total);
+    document.getElementById('leg-win').textContent = fmt(data.wins);
+    document.getElementById('leg-draw').textContent = fmt(data.draws);
+    document.getElementById('leg-loss').textContent = fmt(data.losses);
+  }
+
+  // Per-TC ratings
+  const tcOrder = ['bullet','blitz','rapid','classical'];
+  const tcSymbols = { bullet:'⚡', blitz:'🔥', rapid:'⏱', classical:'♟' };
+  const ratingHtml = tcOrder.filter(tc => ratings[tc]).map(tc => {
+    const r = ratings[tc];
+    const prog = r.prog > 0 ? `<span class="prog-up"> ▲${r.prog}</span>` : r.prog < 0 ? `<span class="prog-dn"> ▼${Math.abs(r.prog)}</span>` : '';
+    return `<div class="tc-card">
+      <div class="tc-label">${tc}</div>
+      <div class="tc-rating">${r.rating}${prog}</div>
+      <div class="tc-games">${fmt(r.games)} games</div>
+    </div>`;
+  }).join('');
+  const ratingRow = document.getElementById('ratings-row');
+  if (ratingHtml) { ratingRow.innerHTML = ratingHtml; ratingRow.style.display = 'flex'; }
+  else { ratingRow.style.display = 'none'; }
+
+  // Current game / idle
+  const game = data.current_game;
+  const gameSection = document.getElementById('game-section');
+  const idleHint    = document.getElementById('idle-hint');
+  const engSection  = document.getElementById('engine-section');
+
+  if (game?.id) {
+    gameSection.style.display = '';
+    idleHint.style.display = 'none';
+    const frame = document.getElementById('board-frame');
+    const newSrc = `https://lichess.org/embed/game/${game.id}?theme=brown&bg=dark`;
+    if (frame.src !== newSrc) frame.src = newSrc;
+    document.getElementById('game-meta').innerHTML = renderMeta(game, data.bot);
+  } else {
+    gameSection.style.display = 'none';
+    idleHint.style.display = '';
+  }
+
+  // Engine card visible whenever we have any stats (live or historical)
+  if (data.engine_stats?.depth != null) {
+    engSection.style.display = '';
+    updateEngineUI(data.engine_stats, false);
+  } else {
+    engSection.style.display = 'none';
+  }
+
+  // Recent games
+  document.getElementById('recent-games').innerHTML = renderRecent(data.recent_games || [], data.bot);
+}
+
+// ---- build info ----
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderChangeRow(c, kindClass) {
+  return `
+    <div class="change-row">
+      <div class="change-head">
+        <span class="change-name">${escapeHtml(c.name)}</span>
+        <span class="change-kind kind-${kindClass}">${escapeHtml(kindClass.replace('-', ' '))}</span>
+      </div>
+      <div class="change-impact">${escapeHtml(c.impact || c.reason || '')}</div>
+      ${c.ab_result ? `<div class="change-ab">A/B: ${escapeHtml(c.ab_result)}</div>` : ''}
+    </div>`;
+}
+
+async function refreshBuildInfo() {
+  let info;
+  try { info = await (await fetch('/api/build-info')).json(); }
+  catch (e) { return; }
+  if (!info || !info.kept) return;
+  document.getElementById('build-card').style.display = '';
+  document.getElementById('build-version').textContent =
+    `${info.version || ''}${info.build_date ? ' · ' + info.build_date : ''}`;
+  document.getElementById('build-summary').textContent = info.summary || '';
+
+  const kept = (info.kept || []).map(c => renderChangeRow(c, c.kind || 'quality')).join('');
+  const rejected = (info.rejected || []).length
+    ? `<div class="rejected-header">Rejected with data</div>` +
+      info.rejected.map(c => renderChangeRow(c, 'rejected')).join('')
+    : '';
+  document.getElementById('build-changes').innerHTML = kept + rejected;
+}
+
+// Boot — fetch bot list first, then arm everything
+async function boot() {
+  try {
+    window._bots = await (await fetch('/api/bots')).json();
+  } catch (e) {
+    window._bots = [{ key: 'megabot73', name: 'MegaBot73', engine: 'Rust' }];
+  }
+  if (!window._bots.some(b => b.key === currentBot)) {
+    currentBot = window._bots[0].key;
+    localStorage.setItem('bot', currentBot);
+  }
+  renderTabs();
+  startEngineStream();
+  refresh();
+  refreshLog();
+  refreshBuildInfo();
+  setInterval(refresh, 5000);
+  setInterval(refreshLog, 3000);
+  setInterval(refreshBuildInfo, 60000);
+}
+boot();
+</script>
+</body>
+</html>

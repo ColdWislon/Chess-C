@@ -1,0 +1,17 @@
+[Unit]
+Description=rpiBot73 chess dashboard (port 8080)
+After=network.target
+
+[Service]
+Type=simple
+User=bertrand
+WorkingDirectory=/home/bertrand/chess-c/dashboard
+EnvironmentFile=/home/bertrand/.config/chess-dashboard.env
+ExecStart=/usr/bin/python3 /home/bertrand/chess-c/dashboard/server.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
