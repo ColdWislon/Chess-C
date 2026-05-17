@@ -35,6 +35,13 @@ typedef struct {
     Move     killers[MAX_PLY][2];
     int      history[2][64][64];   /* [color][from][to] */
 
+    /* Counter-move heuristic: counter_moves[prev_from][prev_to] is the quiet
+       move that most recently produced a beta-cutoff in reply to a move with
+       those endpoints. Indexed by the opponent's move (not piece-keyed —
+       simpler and good enough; piece info is recoverable from the position
+       if we ever want to switch). */
+    Move     counter_moves[64][64];
+
     uint64_t rep_stack[1024];
     int      rep_top;
 
@@ -87,7 +94,7 @@ static int mvv_lva(Move m) {
 }
 
 static int score_move(const SearchCtx *ctx, const Position *pos, Move m,
-                      Move tt_move, int ply, int color) {
+                      Move tt_move, Move counter_move, int ply, int color) {
     if (m == tt_move) return 1000000;
     int cap = MOVE_CAPTURE(m);
     if (cap != PIECE_NONE) {
@@ -96,9 +103,13 @@ static int score_move(const SearchCtx *ctx, const Position *pos, Move m,
         int base = (pos_see(pos, m) >= 0) ? 100000 : 60000;
         return base + mvv_lva(m);
     }
-    if (MOVE_PROMO(m) == QUEEN) return 95000;
-    if (m == ctx->killers[ply][0]) return 90000;
-    if (m == ctx->killers[ply][1]) return 80000;
+    if (MOVE_PROMO(m) == QUEEN)       return 95000;
+    if (m == ctx->killers[ply][0])    return 90000;
+    if (m == ctx->killers[ply][1])    return 80000;
+    /* Counter-move slots below killers and above history. MOVE_NONE never
+       compares equal to a real generated move, so when there's no counter
+       (e.g. at the root) this is a no-op. */
+    if (m == counter_move)            return 70000;
     return ctx->history[color][MOVE_FROM(m)][MOVE_TO(m)];
 }
 
@@ -192,7 +203,8 @@ static inline void pv_copy(SearchCtx *ctx, int ply, Move m) {
 }
 
 static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
-                      SearchCtx *ctx, TT *tt, int ply, bool can_null) {
+                      SearchCtx *ctx, TT *tt, int ply, bool can_null,
+                      Move prev_move) {
     ctx->nodes++;
     if (ply > ctx->seldepth) ctx->seldepth = ply;
     check_time(ctx);
@@ -270,8 +282,11 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
 
         int R = 2 + (depth >= 6 ? 1 : 0);
         ctx->rep_stack[ctx->rep_top++] = np.hash;
+        /* prev_move = MOVE_NONE through null search — we didn't actually
+           play a move, so it would be wrong to attribute its child cutoffs
+           to a "counter-move" of anything. */
         int score = -alpha_beta(&np, depth - 1 - R, -beta, -beta + 1,
-                                ctx, tt, ply + 1, false);
+                                ctx, tt, ply + 1, false, MOVE_NONE);
         ctx->rep_top--;
         if (ctx->stopped) return 0;
         if (score >= beta) { ctx->nullmove_cuts++; return beta; }
@@ -282,9 +297,15 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
     if (n == 0)
         return in_check ? (-SEARCH_MATE + ply) : 0;
 
+    /* Look up the counter-move once for the whole loop — keyed on the
+       opponent's last move's (from, to). MOVE_NONE when at the root. */
+    Move counter = (prev_move != MOVE_NONE)
+        ? ctx->counter_moves[MOVE_FROM(prev_move)][MOVE_TO(prev_move)]
+        : MOVE_NONE;
     int scores[MAX_MOVES];
     for (int i = 0; i < n; i++)
-        scores[i] = score_move(ctx, pos, moves[i], tt_move, ply, pos->side);
+        scores[i] = score_move(ctx, pos, moves[i], tt_move, counter,
+                               ply, pos->side);
 
     int  orig_alpha = alpha;
     Move best_move  = moves[0];
@@ -330,7 +351,7 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
         if (searched == 0) {
             /* PV move — full window */
             score = -alpha_beta(&child, depth - 1, -beta, -alpha,
-                                ctx, tt, ply + 1, true);
+                                ctx, tt, ply + 1, true, m);
         } else {
             /* LMR for late quiet moves at sufficient depth */
             int reduction = 0;
@@ -341,17 +362,17 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
 
             /* Zero-window search */
             score = -alpha_beta(&child, depth - 1 - reduction, -alpha - 1, -alpha,
-                                ctx, tt, ply + 1, true);
+                                ctx, tt, ply + 1, true, m);
 
             /* If reduced search beat alpha, redo at full depth, still zero window */
             if (!ctx->stopped && score > alpha && reduction > 0)
                 score = -alpha_beta(&child, depth - 1, -alpha - 1, -alpha,
-                                    ctx, tt, ply + 1, true);
+                                    ctx, tt, ply + 1, true, m);
 
             /* If still inside the window, re-search full window for PV */
             if (!ctx->stopped && score > alpha && score < beta)
                 score = -alpha_beta(&child, depth - 1, -beta, -alpha,
-                                    ctx, tt, ply + 1, true);
+                                    ctx, tt, ply + 1, true, m);
         }
 
         if (ctx->stopped) { ctx->rep_top--; return 0; }
@@ -366,7 +387,7 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
         if (alpha >= beta) {
             ctx->cutoffs++;
             if (searched == 1) ctx->cutoffs_first++;
-            /* Beta cutoff — record killers + history for quiet moves */
+            /* Beta cutoff — record killers + history + counter for quiet moves */
             if (quiet) {
                 if (ctx->killers[ply][0] != m) {
                     ctx->killers[ply][1] = ctx->killers[ply][0];
@@ -379,6 +400,11 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
                         for (int f = 0; f < 64; f++)
                             for (int t = 0; t < 64; t++)
                                 ctx->history[c][f][t] /= 2;
+                }
+                /* Counter-move: "after the opponent played prev_move, this
+                   quiet move m caused a cutoff." Skip at the root (no prev). */
+                if (prev_move != MOVE_NONE) {
+                    ctx->counter_moves[MOVE_FROM(prev_move)][MOVE_TO(prev_move)] = m;
                 }
             }
             break;
@@ -459,7 +485,9 @@ static IdResult run_id(SearchCtx *ctx, const Position *pos, int max_depth,
 
         int score = 0;
         while (1) {
-            score = alpha_beta(pos, depth, alpha, beta, ctx, tt, 0, true);
+            /* Root call: prev_move = MOVE_NONE (no opponent move to attribute
+               cutoffs to at this level). */
+            score = alpha_beta(pos, depth, alpha, beta, ctx, tt, 0, true, MOVE_NONE);
             if (ctx->stopped) break;
             if (score <= alpha) {
                 alpha -= window;
