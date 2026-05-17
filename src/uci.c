@@ -4,6 +4,7 @@
 #include "perft.h"
 #include "chat.h"
 #include "bench.h"
+#include "build_id.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -56,8 +57,12 @@ void uci_run(OpeningBook *book) {
         line[strcspn(line, "\r\n")] = '\0';
 
         if (strcmp(line, "uci") == 0) {
-            printf("id name ChessEngine-C\n");
+            printf("id name ChessEngine-C build %s\n", BUILD_GIT_SHA);
             printf("id author ChessEngineBot\n");
+            /* Echo build id as info-string so the dashboard's journal parser
+               picks it up at startup without needing a UCI-level handshake. */
+            fprintf(stderr, "info string BUILD %s\n", BUILD_GIT_SHA);
+            fflush(stderr);
             printf("option name Hash type spin default 64 min 1 max 4096\n");
             printf("option name Threads type spin default 1 min 1 max 512\n");
             printf("option name Move Overhead type spin default 30 min 0 max 5000\n");
@@ -95,6 +100,11 @@ void uci_run(OpeningBook *book) {
             tt_clear(&tt);
             is_first_move = true;
             have_last     = false;
+            /* Re-emit build id at game start so the dashboard's journal
+               scan (which only looks back a few hundred lines) finds it
+               even when the engine has been running for a long time. */
+            fprintf(stderr, "info string BUILD %s\n", BUILD_GIT_SHA);
+            fflush(stderr);
 
         } else if (strncmp(line, "position", 8) == 0) {
             const char *p = line + 8;

@@ -5,10 +5,25 @@ LDFLAGS = -pthread
 SRC = src/board.c src/tt.c src/eval.c src/search.c \
       src/opening.c src/perft.c src/chat.c src/bench.c src/uci.c src/main.c
 
-release: $(SRC)
+# Build-time identity: short git SHA + "-dirty" if the working tree is dirty.
+# Regenerated on every build (src/build_id.h is gitignored). Surfaces to the
+# dashboard via `info string BUILD <id>` at startup.
+GIT_SHA   := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+GIT_DIRTY := $(shell git diff --quiet 2>/dev/null || echo -dirty)
+BUILD_ID  := $(GIT_SHA)$(GIT_DIRTY)
+
+src/build_id.h: FORCE
+	@echo '#pragma once' > $@.tmp
+	@echo '#define BUILD_GIT_SHA "$(BUILD_ID)"' >> $@.tmp
+	@cmp -s $@.tmp $@ 2>/dev/null || mv $@.tmp $@
+	@rm -f $@.tmp
+
+FORCE:
+
+release: src/build_id.h $(SRC)
 	$(CC) $(CFLAGS) -O3 -march=native $(SRC) -o chess-engine-c $(LDFLAGS)
 
-debug: $(SRC)
+debug: src/build_id.h $(SRC)
 	$(CC) $(CFLAGS) -O0 -g $(SRC) -o chess-engine-c-dbg $(LDFLAGS)
 
 # src/poly_keys.h is checked in (the canonical 781 Polyglot constants).
@@ -52,6 +67,6 @@ bench-compare-timed: release
 	@bash tools/bench_compare_timed.sh $(BENCH_MS)
 
 clean:
-	rm -f chess-engine-c chess-engine-c-dbg chess-engine-c.baseline
+	rm -f chess-engine-c chess-engine-c-dbg chess-engine-c.baseline src/build_id.h
 
-.PHONY: release debug test clean bench bench-timed bench-baseline bench-compare bench-compare-timed
+.PHONY: release debug test clean bench bench-timed bench-baseline bench-compare bench-compare-timed FORCE

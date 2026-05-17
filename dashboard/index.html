@@ -152,6 +152,19 @@
   .tc-tag { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 600; background: #2d1a4a; color: var(--purple); }
   .game-time { color: var(--muted); font-size: 0.73rem; margin-left: auto; white-space: nowrap; }
 
+  /* ---- system (host) ---- */
+  .system-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 720px) { .system-grid { grid-template-columns: repeat(2, 1fr); } }
+  .system-stat { text-align: left; }
+  .system-val { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; margin-bottom: 4px; }
+  .system-key { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .system-sub { font-size: 0.7rem; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .power-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .power-ok     { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .power-past   { background: var(--yellow); }
+  .power-active { background: var(--red); box-shadow: 0 0 8px var(--red); animation: pulse 1.5s infinite; }
+  .power-unknown{ background: var(--muted); }
+
   /* ---- build info ---- */
   .build-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
   .build-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; flex-wrap: wrap; gap: 8px; }
@@ -170,6 +183,54 @@
   .change-impact { font-size: 0.78rem; color: var(--text); line-height: 1.4; margin-bottom: 4px; }
   .change-ab { font-size: 0.72rem; color: var(--muted); font-family: 'Fira Mono', monospace; line-height: 1.4; }
   .rejected-header { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+
+  /* ---- status chip in header ---- */
+  .status-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; padding: 4px 10px; border-radius: 12px; font-weight: 600; }
+  .chip-playing { background: #1e3a5f; color: var(--blue); }
+  .chip-idle    { background: #44403c; color: var(--muted); }
+  .chip-offline { background: #450a0a; color: var(--red); }
+  .chip-opp     { color: var(--text); font-weight: 400; }
+
+  /* ---- games-today card ---- */
+  .quota-bar-wrap { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; margin-bottom: 20px; }
+  .quota-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .quota-label { font-size: 0.76rem; color: var(--muted); }
+  .quota-count { font-size: 0.86rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .quota-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .quota-bar-fill { height: 100%; background: var(--blue); transition: width 0.3s, background 0.3s; }
+
+  /* ---- openings repertoire ---- */
+  .openings-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+  .openings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  @media (max-width: 720px) { .openings-grid { grid-template-columns: 1fr; } }
+  .openings-col h3 { font-size: 0.74rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
+  .opening-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 0.82rem; }
+  .opening-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .opening-plays { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 0.72rem; }
+  .opening-wdl { display: inline-flex; height: 5px; width: 64px; border-radius: 3px; overflow: hidden; flex-shrink: 0; }
+  .opening-wdl .seg-win  { background: var(--green); }
+  .opening-wdl .seg-draw { background: var(--yellow); }
+  .opening-wdl .seg-loss { background: var(--red); }
+
+  /* ---- charts (move score + time) ---- */
+  .chart-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+  .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  @media (max-width: 720px) { .chart-grid { grid-template-columns: 1fr; } }
+  .chart-block h3 { font-size: 0.74rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; display: flex; justify-content: space-between; }
+  .chart-svg { width: 100%; height: 80px; display: block; }
+  .chart-empty { color: var(--muted); font-style: italic; font-size: 0.8rem; padding: 24px 0; text-align: center; }
+
+  /* ---- PV line ---- */
+  .pv-line { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); font-family: 'Fira Mono', monospace; font-size: 0.78rem; color: var(--text); word-break: break-all; line-height: 1.5; }
+  .pv-label { color: var(--muted); font-family: 'Segoe UI', sans-serif; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; margin-right: 8px; }
+
+  /* ---- bench / gauntlet panels ---- */
+  .ab-panels { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  @media (max-width: 720px) { .ab-panels { grid-template-columns: 1fr; } }
+  .ab-panel h4 { font-size: 0.72rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+  .ab-empty { font-size: 0.75rem; color: var(--muted); font-style: italic; }
+  .gauntlet-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+  .gauntlet-skill { color: var(--muted); }
 
   /* ---- log ---- */
   .log-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
@@ -207,8 +268,18 @@
       <div class="dot" id="dot"></div>
       <span class="status-label" id="status-label">connecting…</span>
     </div>
+    <span class="status-chip" id="status-chip" style="display:none"></span>
   </div>
   <div class="playtime-badge" id="playtime-badge" style="display:none"></div>
+</div>
+
+<!-- Daily bot-vs-bot quota (lichess caps at 100/day) -->
+<div class="quota-bar-wrap" id="quota-card" style="display:none">
+  <div class="quota-header">
+    <span class="quota-label tip" data-tip="Games played against other lichess bots today (UTC). Lichess caps each bot at 100 vs-bot games per 24 h — when this hits the cap, matchmaking sits idle until the counter resets around 07:35 European time.">Bot-vs-bot games today</span>
+    <span class="quota-count" id="quota-count">—</span>
+  </div>
+  <div class="quota-bar"><div class="quota-bar-fill" id="quota-bar-fill" style="width:0%"></div></div>
 </div>
 
 <!-- Stat cards -->
@@ -255,22 +326,52 @@
 <!-- Per-TC ratings -->
 <div class="ratings-row" id="ratings-row" style="display:none"></div>
 
-<!-- Current game (board only) -->
-<div id="game-section" style="display:none">
-  <div class="board-card">
-    <h2>Current game</h2>
-    <div class="board-wrap">
-      <div class="board-embed">
-        <iframe id="board-frame" width="400" height="440" src=""></iframe>
-      </div>
-      <div class="game-meta" id="game-meta"></div>
-    </div>
-  </div>
+<!-- Current game (compact strip — board iframe removed) -->
+<div id="game-section" class="board-card" style="display:none">
+  <h2>Current game</h2>
+  <div class="game-meta" id="game-meta"></div>
 </div>
 
 <!-- Idle hint -->
 <div id="idle-hint" class="board-card" style="display:none">
   <p class="idle-msg">Bot is idle — challenge it on <a href="https://lichess.org/@/rpiBot73" target="_blank" style="color:var(--green)">lichess.org/@/rpiBot73</a></p>
+</div>
+
+<!-- System (host) stats -->
+<div id="system-section" class="board-card" style="display:none">
+  <h2>System</h2>
+  <div class="system-grid">
+    <div class="system-stat tip" data-tip="Pi CPU usage across all 4 cores, sampled between dashboard polls (5 s window). The engine uses Threads=4 so it can drive this near 100% while thinking.">
+      <div class="system-val" id="sys-cpu">—</div>
+      <div class="system-key">CPU</div>
+      <div class="mini-bar"><div class="mini-bar-fill" id="bar-cpu" style="width:0%"></div></div>
+    </div>
+    <div class="system-stat tip" data-tip="RAM in use (MemTotal − MemAvailable). The engine alone holds ~400 MB with a 384 MB TT, so high values are expected when a game is running.">
+      <div class="system-val" id="sys-mem">—</div>
+      <div class="system-key">Memory</div>
+      <div class="mini-bar"><div class="mini-bar-fill" id="bar-mem" style="width:0%"></div></div>
+      <div class="system-sub" id="sys-mem-bytes"></div>
+    </div>
+    <div class="system-stat tip" data-tip="Pi power/throttle state from `vcgencmd get_throttled`. Green = clean, yellow = past throttling since boot, red = currently throttled / under-voltage (lightning-bolt). Sub-line shows CPU temperature (Pi 4 soft-throttles at 80°C).">
+      <div class="system-val" id="sys-power"><span class="power-dot power-unknown"></span>—</div>
+      <div class="system-key">Power</div>
+      <div class="system-sub" id="sys-power-detail"></div>
+    </div>
+  </div>
+  <div class="engine-grid-mini" id="proc-row" style="display:none">
+    <div class="engine-mini tip" data-tip="PID of the chess-engine-c subprocess inside the lichess-bot-c service cgroup.">
+      <div class="mini-val" id="proc-pid">—</div>
+      <div class="mini-key">Engine PID</div>
+    </div>
+    <div class="engine-mini tip" data-tip="Resident memory of the engine subprocess. Expect ~TT-size + ~20 MB overhead.">
+      <div class="mini-val" id="proc-rss">—</div>
+      <div class="mini-key">Engine RSS</div>
+    </div>
+    <div class="engine-mini tip" data-tip="Time since the engine subprocess started. Resets when lichess-bot-c restarts (which forfeits any in-progress game).">
+      <div class="mini-val" id="proc-uptime">—</div>
+      <div class="mini-key">Engine uptime</div>
+    </div>
+  </div>
 </div>
 
 <!-- Engine card (always visible if we have any stats) -->
@@ -279,6 +380,7 @@
     <div class="engine-header">
       <h2 style="margin:0">Engine</h2>
       <span class="live-badge" id="live-badge" style="display:none">LIVE</span>
+      <span class="build-version tip" data-tip="Short git SHA of the binary the running engine was built from. Emitted by the engine on uci + ucinewgame. '-dirty' = working tree had uncommitted changes at build time. Updates after lichess-bot-c restarts." id="engine-build" style="margin-left:auto"></span>
     </div>
     <div class="engine-grid">
       <div class="engine-stat tip" data-tip="Plies of full alpha-beta search completed. ‘sel N’ = deepest ply reached including quiescence (capture-chain) extensions.">
@@ -331,6 +433,39 @@
         <div class="mini-key">Null cuts</div>
       </div>
     </div>
+    <div class="pv-line" id="pv-row" style="display:none">
+      <span class="pv-label">Best line</span><span id="pv-moves"></span>
+    </div>
+  </div>
+</div>
+
+<!-- Current-game charts: score over moves + move-time over moves -->
+<div class="chart-card" id="chart-card" style="display:none">
+  <div class="chart-grid">
+    <div class="chart-block">
+      <h3><span>Score (current game)</span><span id="chart-score-latest" style="color:var(--muted);font-weight:400"></span></h3>
+      <svg class="chart-svg" id="chart-score"></svg>
+    </div>
+    <div class="chart-block">
+      <h3><span>Move time (current game)</span><span id="chart-time-latest" style="color:var(--muted);font-weight:400"></span></h3>
+      <svg class="chart-svg" id="chart-time"></svg>
+    </div>
+  </div>
+  <div class="chart-empty" id="chart-empty" style="display:none">No move data yet — waiting for engine to play.</div>
+</div>
+
+<!-- Opening repertoire from recent games -->
+<div class="openings-card" id="openings-card" style="display:none">
+  <h2>Opening repertoire</h2>
+  <div class="openings-grid">
+    <div class="openings-col">
+      <h3>As White</h3>
+      <div id="openings-white"></div>
+    </div>
+    <div class="openings-col">
+      <h3>As Black</h3>
+      <div id="openings-black"></div>
+    </div>
   </div>
 </div>
 
@@ -342,6 +477,16 @@
   </div>
   <div class="build-summary" id="build-summary"></div>
   <div id="build-changes"></div>
+  <div class="ab-panels">
+    <div class="ab-panel">
+      <h4>Last A/B bench</h4>
+      <div id="ab-bench"><div class="ab-empty">No bench result file yet. Run <code>make bench-compare</code> with the JSON-writer wired up.</div></div>
+    </div>
+    <div class="ab-panel">
+      <h4>Last gauntlet</h4>
+      <div id="ab-gauntlet"><div class="ab-empty">No <code>ladder_match.log</code> parsed.</div></div>
+    </div>
+  </div>
 </div>
 
 <!-- Activity log -->
@@ -532,6 +677,7 @@ function updateEngineUI(d, live) {
   setBar('bar-qpct', qpct ?? 0, 'var(--purple)');
 
   document.getElementById('eng-nullcuts').textContent = fmtK(d.nullcuts);
+  updatePV(d.pv);
 
   if (live) {
     const card = document.getElementById('engine-card');
@@ -649,9 +795,6 @@ async function refresh() {
   if (game?.id) {
     gameSection.style.display = '';
     idleHint.style.display = 'none';
-    const frame = document.getElementById('board-frame');
-    const newSrc = `https://lichess.org/embed/game/${game.id}?theme=brown&bg=dark`;
-    if (frame.src !== newSrc) frame.src = newSrc;
     document.getElementById('game-meta').innerHTML = renderMeta(game, data.bot);
   } else {
     gameSection.style.display = 'none';
@@ -666,14 +809,288 @@ async function refresh() {
     engSection.style.display = 'none';
   }
 
+  // System (host) card — also surfaces engine process info
+  updateSystemUI(data.system);
+  updateProcRow(data.system?.engine_proc);
+
+  // Build SHA (string, e.g. "951b851-dirty"). Falls back to "—" if engine
+  // hasn't been restarted since the dashboard was deployed.
+  document.getElementById('engine-build').textContent =
+    data.build_id ? `build ${data.build_id}` : '';
+
+  // Header status chip
+  updateStatusChip(data);
+  // Daily quota
+  updateQuota(data.games_today);
+  // Openings repertoire
+  updateOpenings(data.openings);
+  // Current-game charts (separate fetch since journal-tail is heavier)
+  refreshCharts((data.current_game || {}).id);
+
   // Recent games
   document.getElementById('recent-games').innerHTML = renderRecent(data.recent_games || [], data.bot);
 }
 
-// ---- build info ----
+function powerLabel(p) {
+  if (!p || p.status === 'unknown') return { text: 'unknown', detail: '' };
+  if (p.status === 'ok') return { text: 'Normal', detail: 'clean since boot' };
+
+  // Build a compact list of flags. "now" flags trump "ever" flags.
+  const NAMES = { undervolt: 'under-voltage', freq_cap: 'freq cap', throttled: 'throttled', soft_temp: 'soft thermal' };
+  const nowFlags  = Object.entries(p.now  || {}).filter(([,v]) => v).map(([k]) => NAMES[k]);
+  const everFlags = Object.entries(p.ever || {}).filter(([,v]) => v).map(([k]) => NAMES[k]);
+
+  if (p.status === 'active') {
+    return { text: nowFlags.join(' + ') || 'throttling', detail: `was: ${everFlags.join(', ') || 'none'}` };
+  }
+  return { text: 'Past issues', detail: `had: ${everFlags.join(', ') || 'none'}` };
+}
+
+function tempColor(t) {
+  if (t == null) return null;
+  if (t >= 80) return 'var(--red)';
+  if (t >= 65) return 'var(--yellow)';
+  return 'var(--green)';
+}
+
+function updateSystemUI(sys) {
+  const section = document.getElementById('system-section');
+  if (!sys || (sys.cpu_pct == null && !sys.mem?.total_mb && !sys.power)) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+
+  const cpu = sys.cpu_pct;
+  document.getElementById('sys-cpu').textContent = cpu == null ? '—' : cpu.toFixed(1) + '%';
+  setBar('bar-cpu', cpu ?? 0, cpu > 90 ? 'var(--red)' : cpu > 60 ? 'var(--yellow)' : 'var(--blue)');
+
+  const m = sys.mem || {};
+  if (m.total_mb) {
+    document.getElementById('sys-mem').textContent = (m.pct ?? 0).toFixed(1) + '%';
+    setBar('bar-mem', m.pct ?? 0, m.pct > 90 ? 'var(--red)' : m.pct > 75 ? 'var(--yellow)' : 'var(--blue)');
+    document.getElementById('sys-mem-bytes').textContent = `${m.used_mb} / ${m.total_mb} MB`;
+  } else {
+    document.getElementById('sys-mem').textContent = '—';
+    document.getElementById('sys-mem-bytes').textContent = '';
+  }
+
+  const p = sys.power || { status: 'unknown' };
+  const { text, detail } = powerLabel(p);
+  const powerEl = document.getElementById('sys-power');
+  powerEl.innerHTML = `<span class="power-dot power-${p.status}"></span>${escapeHtml(text)}`;
+
+  const t = sys.temp_c;
+  const tempStr = t == null ? '' : `${t.toFixed(1)}°C`;
+  const color = tempColor(t);
+  const detailEl = document.getElementById('sys-power-detail');
+  detailEl.textContent = [tempStr, detail].filter(Boolean).join(' · ');
+  detailEl.style.color = color || 'var(--muted)';
+}
+
+// ---- shared helpers ----
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+
+function fmtUptime(s) {
+  if (s == null) return '—';
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s/60)}m ${s%60}s`;
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
+  return `${h}h ${m}m`;
+}
+
+// ---- status chip in header ----
+function updateStatusChip(data) {
+  const chip = document.getElementById('status-chip');
+  if (!data.online) {
+    chip.style.display = '';
+    chip.className = 'status-chip chip-offline';
+    chip.textContent = 'OFFLINE';
+    return;
+  }
+  const g = data.current_game;
+  if (g?.id) {
+    const botLow = (data.bot || '').toLowerCase();
+    const oppColor = g.players?.white?.user?.name?.toLowerCase() === botLow ? 'black' : 'white';
+    const opp = g.players?.[oppColor]?.user?.name || '?';
+    const tc = g.clock ? `${g.clock.initial/60}+${g.clock.increment}` : (g.speed || '');
+    chip.style.display = '';
+    chip.className = 'status-chip chip-playing';
+    chip.innerHTML = `PLAYING <span class="chip-opp">vs ${escapeHtml(opp)}${tc ? ' · ' + escapeHtml(tc) : ''}</span>`;
+  } else {
+    chip.style.display = '';
+    chip.className = 'status-chip chip-idle';
+    chip.textContent = 'IDLE';
+  }
+}
+
+// ---- games-today quota ----
+function updateQuota(q) {
+  const card = document.getElementById('quota-card');
+  if (!q || q.vs_bots_today == null) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const pct = Math.min(100, (q.vs_bots_today / q.limit) * 100);
+  document.getElementById('quota-count').textContent = `${q.vs_bots_today} / ${q.limit}`;
+  const fill = document.getElementById('quota-bar-fill');
+  fill.style.width = pct + '%';
+  fill.style.background = pct >= 90 ? 'var(--red)' : pct >= 70 ? 'var(--yellow)' : 'var(--blue)';
+}
+
+// ---- openings ----
+function renderOpeningRow(o) {
+  const total = o.win + o.draw + o.loss;
+  const w = total ? (o.win / total * 100) : 0;
+  const d = total ? (o.draw / total * 100) : 0;
+  const l = total ? (o.loss / total * 100) : 0;
+  return `
+    <div class="opening-row">
+      <span class="opening-name" title="${escapeHtml(o.name)}">${escapeHtml(o.name)}</span>
+      <span class="opening-plays">${o.plays}</span>
+      <span class="opening-wdl">
+        <span class="seg-win"  style="width:${w}%"></span>
+        <span class="seg-draw" style="width:${d}%"></span>
+        <span class="seg-loss" style="width:${l}%"></span>
+      </span>
+    </div>`;
+}
+
+function updateOpenings(o) {
+  const card = document.getElementById('openings-card');
+  if (!o || (!o.white?.length && !o.black?.length)) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const whiteHtml = (o.white || []).map(renderOpeningRow).join('') ||
+    '<div class="ab-empty">No games yet</div>';
+  const blackHtml = (o.black || []).map(renderOpeningRow).join('') ||
+    '<div class="ab-empty">No games yet</div>';
+  document.getElementById('openings-white').innerHTML = whiteHtml;
+  document.getElementById('openings-black').innerHTML = blackHtml;
+}
+
+// ---- engine process stats ----
+function updateProcRow(p) {
+  const row = document.getElementById('proc-row');
+  if (!p || !p.pid) { row.style.display = 'none'; return; }
+  row.style.display = '';
+  document.getElementById('proc-pid').textContent = p.pid;
+  document.getElementById('proc-rss').textContent = p.rss_mb != null ? `${p.rss_mb} MB` : '—';
+  document.getElementById('proc-uptime').textContent = fmtUptime(p.uptime_s);
+}
+
+// ---- charts (move score + move time as SVG sparklines, no deps) ----
+function drawSparkline(svgEl, values, opts) {
+  // values: array of numbers (or null/undefined to mean "no data point")
+  const W = svgEl.clientWidth || 300;
+  const H = svgEl.clientHeight || 80;
+  svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svgEl.innerHTML = '';
+  const data = values.filter(v => v != null && Number.isFinite(v));
+  if (data.length < 2) {
+    svgEl.innerHTML = `<text x="${W/2}" y="${H/2}" fill="#64748b" font-size="11" text-anchor="middle">${values.length === 0 ? 'no data' : 'waiting for more moves…'}</text>`;
+    return;
+  }
+  const min = opts.yMin != null ? opts.yMin : Math.min(...data);
+  const max = opts.yMax != null ? opts.yMax : Math.max(...data);
+  const span = max - min || 1;
+  const pad = 4;
+  const xstep = (W - 2*pad) / Math.max(1, values.length - 1);
+  let d = '';
+  values.forEach((v, i) => {
+    if (v == null || !Number.isFinite(v)) return;
+    const x = pad + i * xstep;
+    const y = H - pad - ((v - min) / span) * (H - 2*pad);
+    d += (d ? ' L ' : 'M ') + x.toFixed(1) + ' ' + y.toFixed(1);
+  });
+  // Zero line for score chart (when range crosses 0)
+  if (opts.zeroLine && min < 0 && max > 0) {
+    const y0 = H - pad - ((0 - min) / span) * (H - 2*pad);
+    svgEl.innerHTML += `<line x1="${pad}" y1="${y0}" x2="${W-pad}" y2="${y0}" stroke="#2a2f45" stroke-dasharray="3 3"/>`;
+  }
+  svgEl.innerHTML += `<path d="${d}" fill="none" stroke="${opts.color || '#60a5fa'}" stroke-width="1.8"/>`;
+}
+
+let _lastMoveHistoryLen = -1;
+async function refreshCharts(currentGameId) {
+  const card = document.getElementById('chart-card');
+  let history;
+  try { history = await (await fetch(`/api/move-history?bot=${currentBot}`)).json(); }
+  catch (e) { card.style.display = 'none'; return; }
+
+  if (!Array.isArray(history) || history.length === 0) {
+    // Only show empty-state when there's a game in progress (else: hide entire card)
+    if (currentGameId) {
+      card.style.display = '';
+      document.getElementById('chart-empty').style.display = '';
+      drawSparkline(document.getElementById('chart-score'), [], { zeroLine: true });
+      drawSparkline(document.getElementById('chart-time'),  [], {});
+    } else {
+      card.style.display = 'none';
+    }
+    return;
+  }
+
+  card.style.display = '';
+  document.getElementById('chart-empty').style.display = 'none';
+  // Clamp score to ±1000 cp for display (mate scores would otherwise blow the y-axis).
+  const scores = history.map(e => e.score_cp == null ? null : Math.max(-1000, Math.min(1000, e.score_cp)));
+  const times  = history.map(e => e.time_ms);
+  drawSparkline(document.getElementById('chart-score'), scores, { color: '#4ade80', zeroLine: true });
+  drawSparkline(document.getElementById('chart-time'),  times,  { color: '#c084fc', yMin: 0 });
+
+  const last = history[history.length - 1];
+  document.getElementById('chart-score-latest').textContent =
+    last.score_cp == null ? '' : ((last.score_cp/100).toFixed(2) + ` @ d${last.depth ?? '?'}`);
+  document.getElementById('chart-time-latest').textContent =
+    last.time_ms == null ? '' : fmtMs(last.time_ms);
+
+  _lastMoveHistoryLen = history.length;
+}
+
+// ---- PV in engine card ----
+function updatePV(pv) {
+  const row = document.getElementById('pv-row');
+  if (!pv) { row.style.display = 'none'; return; }
+  row.style.display = '';
+  document.getElementById('pv-moves').textContent = pv;
+}
+
+// ---- bench + gauntlet panels in build card ----
+async function refreshBenchPanel() {
+  try {
+    const r = await (await fetch('/api/bench-result')).json();
+    const el = document.getElementById('ab-bench');
+    if (!r || !r.delta_ms_pct) {
+      el.innerHTML = '<div class="ab-empty">No bench result file yet. Run <code>make bench-compare</code> with the JSON-writer wired up.</div>';
+      return;
+    }
+    const cls = r.delta_ms_pct < 0 ? 'score-pos' : r.delta_ms_pct > 0 ? 'score-neg' : '';
+    el.innerHTML = `
+      <div class="gauntlet-row"><span class="gauntlet-skill">Wall time Δ</span><span class="${cls}">${r.delta_ms_pct.toFixed(2)}%</span></div>
+      <div class="gauntlet-row"><span class="gauntlet-skill">Nodes Δ</span><span>${r.delta_nodes ?? '—'}</span></div>
+      <div class="gauntlet-row"><span class="gauntlet-skill">Depth</span><span>${r.depth ?? '—'}</span></div>
+      ${r.timestamp ? `<div class="gauntlet-row"><span class="gauntlet-skill">When</span><span>${escapeHtml(r.timestamp)}</span></div>` : ''}`;
+  } catch (e) {}
+}
+
+async function refreshGauntletPanel() {
+  try {
+    const r = await (await fetch('/api/gauntlet-result')).json();
+    const el = document.getElementById('ab-gauntlet');
+    if (!r || !r.per_skill) {
+      el.innerHTML = '<div class="ab-empty">No <code>ladder_match.log</code> parsed.</div>';
+      return;
+    }
+    const rows = r.per_skill.map(s => {
+      const pct = s.total ? (s.score / s.total * 100).toFixed(0) : '—';
+      return `<div class="gauntlet-row"><span class="gauntlet-skill">SF skill ${s.skill}</span><span>${s.wins}/${s.draws}/${s.losses} <span style="color:var(--muted)">(${pct}%)</span></span></div>`;
+    }).join('');
+    const final = r.final ? `<div class="gauntlet-row" style="border-top:1px solid var(--border);padding-top:6px;margin-top:6px"><span class="gauntlet-skill">Total</span><span><strong>${r.final.points} / ${r.final.out_of}</strong></span></div>` : '';
+    el.innerHTML = rows + final;
+  } catch (e) {}
+}
+
+// ---- build info ----
 
 function renderChangeRow(c, kindClass) {
   return `
@@ -721,9 +1138,13 @@ async function boot() {
   refresh();
   refreshLog();
   refreshBuildInfo();
+  refreshBenchPanel();
+  refreshGauntletPanel();
   setInterval(refresh, 5000);
   setInterval(refreshLog, 3000);
   setInterval(refreshBuildInfo, 60000);
+  setInterval(refreshBenchPanel, 60000);
+  setInterval(refreshGauntletPanel, 60000);
 }
 boot();
 </script>

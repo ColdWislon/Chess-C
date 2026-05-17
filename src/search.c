@@ -39,6 +39,13 @@ typedef struct {
     int      rep_top;
 
     Move     root_best;
+
+    /* Principal Variation: pv[ply] is the best line found from that ply
+       onward, length pv_len[ply]. After a PV node selects move m, we copy
+       child's pv into ours after the leading m. Sized MAX_PLY+1 so that the
+       `ply+1` lookup in pv_copy is in bounds even at the deepest leaf. */
+    Move     pv[MAX_PLY + 1][MAX_PLY];
+    int      pv_len[MAX_PLY + 1];
 } SearchCtx;
 
 static long ms_now(void) {
@@ -171,6 +178,19 @@ static bool has_non_pawn_material(const Position *pos, int color) {
           | pos->pieces[color][ROOK]   | pos->pieces[color][QUEEN]) != 0;
 }
 
+static inline void pv_copy(SearchCtx *ctx, int ply, Move m) {
+    /* Set our PV to [m, ...child's PV]. Called only when a new best move is
+       selected at a PV node (full-window). Bounded by MAX_PLY so we never
+       overrun pv[ply] storage. */
+    ctx->pv[ply][0] = m;
+    int child_len = ctx->pv_len[ply + 1];
+    int max_tail  = MAX_PLY - 1 - ply;
+    if (child_len > max_tail) child_len = max_tail;
+    for (int i = 0; i < child_len; i++)
+        ctx->pv[ply][i + 1] = ctx->pv[ply + 1][i];
+    ctx->pv_len[ply] = 1 + child_len;
+}
+
 static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
                       SearchCtx *ctx, TT *tt, int ply, bool can_null) {
     ctx->nodes++;
@@ -178,8 +198,16 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
     check_time(ctx);
     if (ctx->stopped) return 0;
 
+    /* Hard ply cap: with check extensions a pathological perpetual-check tree
+       could push ply past MAX_PLY, OOB-ing per-ply arrays (killers, pv).
+       Bail out with static eval — quiescence does the same. */
+    if (ply >= MAX_PLY) return evaluate(pos);
+
     bool is_pv    = (beta - alpha) > 1;
     bool in_check = pos_in_check(pos);
+
+    /* Reset PV length at this ply — refilled when a best move is chosen. */
+    ctx->pv_len[ply] = 0;
 
     if (ply > 0) {
         if (pos->halfmove >= 100) return 0;
@@ -329,7 +357,11 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
         if (ctx->stopped) { ctx->rep_top--; return 0; }
         searched++;
 
-        if (score > best) { best = score; best_move = m; }
+        if (score > best) {
+            best = score; best_move = m;
+            /* Refresh PV at this ply: this is the new best continuation. */
+            pv_copy(ctx, ply, m);
+        }
         if (score > alpha) alpha = score;
         if (alpha >= beta) {
             ctx->cutoffs++;
@@ -459,11 +491,25 @@ static IdResult run_id(SearchCtx *ctx, const Position *pos, int max_depth,
             if (elapsed < 1) elapsed = 1;
             long nps = (long)(ctx->nodes * 1000ULL / (uint64_t)elapsed);
             int hashfull = tt_hashfull(tt);
+            /* PV line: space-separated UCI moves from the root. Cap at 16
+               plies to keep info-line bounded; the engine's chosen depth can
+               be much higher (we just don't dump 100 plies of move text). */
+            char pv_buf[128]; pv_buf[0] = '\0';
+            int pv_show = ctx->pv_len[0] < 16 ? ctx->pv_len[0] : 16;
+            int pv_off  = 0;
+            for (int i = 0; i < pv_show; i++) {
+                char mb[6];
+                move_to_uci(ctx->pv[0][i], mb);
+                int wrote = snprintf(pv_buf + pv_off, sizeof(pv_buf) - pv_off,
+                                     "%s%s", i ? " " : "", mb);
+                if (wrote < 0 || pv_off + wrote >= (int)sizeof(pv_buf) - 1) break;
+                pv_off += wrote;
+            }
             fprintf(stderr,
                     "info depth %d score cp %d nodes %llu nps %ld time %ld "
                     "seldepth %d hashfull %d hashmb %d "
                     "tthits %llu ttprobes %llu qnodes %llu "
-                    "cutoffs %llu cutoffs1 %llu nullcuts %llu\n",
+                    "cutoffs %llu cutoffs1 %llu nullcuts %llu pv %s\n",
                     depth, score, (unsigned long long)ctx->nodes, nps, elapsed,
                     ctx->seldepth, hashfull, tt->mb,
                     (unsigned long long)ctx->tt_hits,
@@ -471,7 +517,8 @@ static IdResult run_id(SearchCtx *ctx, const Position *pos, int max_depth,
                     (unsigned long long)ctx->qnodes,
                     (unsigned long long)ctx->cutoffs,
                     (unsigned long long)ctx->cutoffs_first,
-                    (unsigned long long)ctx->nullmove_cuts);
+                    (unsigned long long)ctx->nullmove_cuts,
+                    pv_buf);
             fflush(stderr);
         }
 

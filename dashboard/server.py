@@ -13,6 +13,7 @@ import os
 import subprocess
 import re
 import sys
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -127,8 +128,196 @@ INFO_FIELDS = [
     ("cutoffs1", r"cutoffs1 (\d+)"),
     ("nullcuts", r"nullcuts (\d+)"),
 ]
+# `pv` is parsed separately because it's an unbounded string trailing the line.
+PV_PATTERN = re.compile(r"\bpv ([a-h1-8 a-zA-Z0-9]+?)(?:\s*$)")
+BUILD_PATTERN = re.compile(r"info string BUILD (\S+)")
 
-BUILD_INFO_PATH = Path("/home/bertrand/chess-c/build-info.json")
+BUILD_INFO_PATH    = Path("/home/bertrand/chess-c/build-info.json")
+BENCH_RESULT_PATH  = Path("/home/bertrand/chess-c/last-bench.json")
+GAUNTLET_LOG_PATH  = Path("/home/bertrand/chess-c/ladder_match.log")
+
+
+# ── System stats ──────────────────────────────────────────────────────
+# CPU usage needs two /proc/stat samples to derive a percent. We keep the
+# previous sample at module scope; the difference between consecutive
+# requests (every 5 s from the dashboard) is the reported CPU%.
+_cpu_lock = threading.Lock()
+_cpu_prev = {"total": 0, "idle": 0}
+
+
+def _read_cpu_counters() -> tuple[int, int]:
+    """Return (total_jiffies, idle_jiffies) from /proc/stat aggregate row."""
+    with open("/proc/stat") as f:
+        parts = f.readline().split()
+    vals = list(map(int, parts[1:]))
+    # user, nice, system, idle, iowait, irq, softirq, steal, guest, guest_nice
+    idle = vals[3] + (vals[4] if len(vals) > 4 else 0)
+    total = sum(vals)
+    return total, idle
+
+
+def cpu_percent() -> float | None:
+    """Sampled CPU% across all cores. Returns None on the very first call
+    (no baseline yet). Thread-safe."""
+    total, idle = _read_cpu_counters()
+    with _cpu_lock:
+        prev_total = _cpu_prev["total"]
+        prev_idle  = _cpu_prev["idle"]
+        _cpu_prev["total"] = total
+        _cpu_prev["idle"]  = idle
+    if prev_total == 0:
+        return None
+    dt = total - prev_total
+    di = idle  - prev_idle
+    if dt <= 0:
+        return 0.0
+    return round(100.0 * (dt - di) / dt, 1)
+
+
+def mem_stats() -> dict:
+    """Memory usage from /proc/meminfo. Uses MemAvailable (kernel's own
+    estimate of free-for-allocation memory, includes reclaimable cache)."""
+    info = {}
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                parts = line.split()
+                if parts[0] in ("MemTotal:", "MemAvailable:"):
+                    info[parts[0][:-1]] = int(parts[1])  # kB
+    except Exception:
+        return {}
+    total = info.get("MemTotal", 0)
+    avail = info.get("MemAvailable", 0)
+    if not total:
+        return {}
+    used = total - avail
+    return {
+        "total_mb": total // 1024,
+        "used_mb":  used  // 1024,
+        "pct":      round(used * 100 / total, 1),
+    }
+
+
+def cpu_temp_c() -> float | None:
+    """Pi CPU temperature in °C, read from the thermal sysfs (no subprocess)."""
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp") as f:
+            return round(int(f.read().strip()) / 1000.0, 1)
+    except Exception:
+        return None
+
+
+# `vcgencmd get_throttled` returns a bitmask. Bits 0-3 are "now"; bits 16-19
+# are "ever since boot". See https://www.raspberrypi.com/documentation/computers/os.html#vcgencmd
+_THROTTLE_BITS = {
+    "undervolt":   (0x1,     0x10000),
+    "freq_cap":    (0x2,     0x20000),
+    "throttled":   (0x4,     0x40000),
+    "soft_temp":   (0x8,     0x80000),
+}
+
+
+def power_status() -> dict:
+    """Pi power/throttle state from vcgencmd. Returns active flags + history
+    flags + a single overall status: 'ok', 'past' (throttled-before only), or
+    'active' (currently throttled / under-voltage)."""
+    try:
+        out = subprocess.check_output(
+            ["vcgencmd", "get_throttled"], stderr=subprocess.DEVNULL,
+            timeout=2, text=True,
+        ).strip()
+    except Exception:
+        return {"status": "unknown"}
+    m = re.search(r"throttled=0x([0-9a-fA-F]+)", out)
+    if not m:
+        return {"status": "unknown"}
+    bits = int(m.group(1), 16)
+
+    now, ever = {}, {}
+    any_now, any_ever = False, False
+    for name, (now_bit, ever_bit) in _THROTTLE_BITS.items():
+        n = bool(bits & now_bit)
+        e = bool(bits & ever_bit)
+        now[name]  = n
+        ever[name] = e
+        any_now  = any_now  or n
+        any_ever = any_ever or e
+
+    status = "active" if any_now else ("past" if any_ever else "ok")
+    return {
+        "status": status,
+        "raw":    f"0x{bits:x}",
+        "now":    now,
+        "ever":   ever,
+    }
+
+
+def engine_proc_stats(service: str) -> dict:
+    """Find the chess-engine-c subprocess inside the given service's cgroup
+    and report its PID, RSS (MB), and uptime (s). The engine is a grandchild
+    via python multiprocessing, so PPID-based lookup doesn't work; we walk
+    the cgroup's process list instead — that's the authoritative service
+    membership under systemd."""
+    cgroup_paths = [
+        f"/sys/fs/cgroup/system.slice/{service}.service/cgroup.procs",
+        f"/sys/fs/cgroup/systemd/system.slice/{service}.service/cgroup.procs",
+    ]
+    pids: list[int] = []
+    for p in cgroup_paths:
+        try:
+            with open(p) as f:
+                pids = [int(x) for x in f.read().split() if x.strip()]
+            break
+        except FileNotFoundError:
+            continue
+        except Exception:
+            return {}
+    engine_pid = 0
+    for pid in pids:
+        try:
+            with open(f"/proc/{pid}/comm") as f:
+                if f.read().strip() == "chess-engine-c":
+                    engine_pid = pid
+                    break
+        except Exception:
+            pass
+    if not engine_pid:
+        return {}
+
+    try:
+        with open(f"/proc/{engine_pid}/status") as f:
+            status = f.read()
+        rss_kb_m = re.search(r"VmRSS:\s+(\d+)\s+kB", status)
+        rss_mb = int(rss_kb_m.group(1)) // 1024 if rss_kb_m else None
+
+        # uptime: now - process start time (start_time is in clock ticks since boot)
+        with open(f"/proc/{engine_pid}/stat") as f:
+            stat_fields = f.read().split()
+        # field 22 (1-indexed): starttime in clock ticks
+        starttime_ticks = int(stat_fields[21])
+        clk_tck = os.sysconf("SC_CLK_TCK")
+        with open("/proc/uptime") as f:
+            sys_uptime = float(f.read().split()[0])
+        proc_uptime_s = sys_uptime - (starttime_ticks / clk_tck)
+        return {
+            "pid":       engine_pid,
+            "rss_mb":    rss_mb,
+            "uptime_s":  int(proc_uptime_s),
+        }
+    except Exception:
+        return {"pid": engine_pid}
+
+
+def system_stats(service: str = "") -> dict:
+    out = {
+        "cpu_pct": cpu_percent(),
+        "mem":     mem_stats(),
+        "temp_c":  cpu_temp_c(),
+        "power":   power_status(),
+    }
+    if service:
+        out["engine_proc"] = engine_proc_stats(service)
+    return out
 
 
 def parse_info(line: str) -> dict:
@@ -139,7 +328,185 @@ def parse_info(line: str) -> dict:
         m = re.search(pat, line)
         if m:
             out[key] = int(m.group(1))
+    pvm = PV_PATTERN.search(line)
+    if pvm:
+        out["pv"] = pvm.group(1).strip()
     return out
+
+
+def latest_build_id(service: str) -> str | None:
+    """Most recent `info string BUILD <id>` line from the journal. Returns
+    None until the engine has been restarted at least once with the new build."""
+    try:
+        out = subprocess.check_output(
+            ["journalctl", "-u", service, "-n", "2000", "--no-pager", "-o", "cat"],
+            stderr=subprocess.DEVNULL, timeout=3, text=True,
+        )
+    except Exception:
+        return None
+    for line in reversed(out.splitlines()):
+        m = BUILD_PATTERN.search(line)
+        if m:
+            return m.group(1)
+    return None
+
+
+def move_history(service: str, max_moves: int = 60) -> list[dict]:
+    """Walk recent journal lines; emit one record per completed search. The
+    engine's `bestmove` goes to stdout (consumed by lichess-bot, not journal),
+    so we use lichess-bot's own `Searching for wtime ...` log line as the
+    "new search begins" boundary — the highest-depth `info depth` line before
+    it is the previous move's final stats. Resets on `Game ID:` (new game)."""
+    try:
+        out = subprocess.check_output(
+            ["journalctl", "-u", service, "-n", "4000", "--no-pager", "-o", "cat"],
+            stderr=subprocess.DEVNULL, timeout=3, text=True,
+        )
+    except Exception:
+        return []
+
+    history: list[dict] = []
+    last_info: dict = {}
+    move_num = 0
+
+    def flush():
+        if not last_info:
+            return
+        nonlocal move_num
+        move_num += 1
+        history.append({
+            "move_num": move_num,
+            "depth":    last_info.get("depth"),
+            "score_cp": last_info.get("score_cp"),
+            "time_ms":  last_info.get("time"),
+            "nodes":    last_info.get("nodes"),
+            "pv":       last_info.get("pv"),
+        })
+
+    for line in out.splitlines():
+        # The engine re-emits "info string BUILD <sha>" on every ucinewgame,
+        # which is the cleanest "new game starts here" boundary visible in the
+        # journal. Lichess-bot's own game-end logs ("Game over"/"Game won by")
+        # also count — though by then the BUILD reset usually has already
+        # cleared us out before the next game begins.
+        if "info string BUILD" in line or "Game over" in line or "Game won by" in line:
+            history.clear()
+            last_info = {}
+            move_num = 0
+            continue
+        info = parse_info(line)
+        if info:
+            last_info = info
+            continue
+        # Lichess-bot's start-of-search marker. Everything in `last_info` from
+        # before this line belongs to the previous search.
+        if "Searching for" in line and "engine_wrapper" in line:
+            flush()
+            last_info = {}
+    # The currently-in-progress search hasn't terminated yet — don't flush it
+    # (would otherwise pollute history with the in-flight depth).
+    return history[-max_moves:]
+
+
+def last_bench_result() -> dict | None:
+    """`bench_compare.sh` can be wired to write this file after each run.
+    Until that's done, returns whatever's there (or None). Dashboard tolerates
+    a missing file gracefully."""
+    try:
+        return json.loads(BENCH_RESULT_PATH.read_text())
+    except Exception:
+        return None
+
+
+def last_gauntlet_result() -> dict | None:
+    """Parse the tail of ladder_match.log for the score breakdown per
+    Stockfish skill. The current ladder_match.py writes a summary block like
+    `vs SF skill N: W/D/L (score%)`. We grep the last such block."""
+    try:
+        text = GAUNTLET_LOG_PATH.read_text()
+    except Exception:
+        return None
+    # Find the LAST occurrence of a summary-style line. Format is loose; we
+    # accept any "skill <N>" + "W-D-L" or "W/D/L" pattern.
+    pattern = re.compile(
+        r"skill\s+(\d+).*?(\d+)\s*[/-]\s*(\d+)\s*[/-]\s*(\d+)",
+        re.IGNORECASE,
+    )
+    results = {}
+    final_score = None
+    for line in text.splitlines():
+        m = pattern.search(line)
+        if m:
+            skill = int(m.group(1))
+            w, d, l = int(m.group(2)), int(m.group(3)), int(m.group(4))
+            total = w + d + l
+            results[skill] = {
+                "wins":   w, "draws": d, "losses": l,
+                "score":  w + d * 0.5,
+                "total":  total,
+            }
+        if "FINAL" in line.upper() or "TOTAL" in line.upper():
+            sm = re.search(r"(\d+(?:\.\d+)?)\s*/\s*(\d+)", line)
+            if sm:
+                final_score = {"points": float(sm.group(1)), "out_of": int(sm.group(2))}
+    if not results:
+        return None
+    return {
+        "per_skill":  [{"skill": k, **v} for k, v in sorted(results.items())],
+        "final":      final_score,
+        "mtime":      int(GAUNTLET_LOG_PATH.stat().st_mtime),
+    }
+
+
+def games_today_count(recent: list[dict], bot_name: str) -> dict:
+    """From the existing recent_games list, count games started today (UTC)
+    against other bots. Used as a proxy for the lichess 100/day bot-vs-bot
+    quota (the exact API endpoint doesn't exist)."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    day_start_ms = int(now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
+    bot_low = bot_name.lower()
+    vs_bots = 0
+    total   = 0
+    for g in recent or []:
+        ts = g.get("createdAt") or 0
+        if ts < day_start_ms:
+            continue
+        total += 1
+        for color in ("white", "black"):
+            opp = g.get("players", {}).get(color, {}).get("user", {}) or {}
+            if opp.get("name", "").lower() == bot_low:
+                continue
+            if opp.get("title") == "BOT":
+                vs_bots += 1
+                break
+    return {"vs_bots_today": vs_bots, "total_today": total, "limit": 100}
+
+
+def opening_repertoire(recent: list[dict], bot_name: str, top_n: int = 5) -> dict:
+    """Top openings played as each color, from recent_games. Each entry:
+    name, plays, wins, draws, losses."""
+    bot_low = bot_name.lower()
+    buckets = {"white": {}, "black": {}}
+    for g in recent or []:
+        white = (g.get("players", {}).get("white", {}).get("user", {}) or {}).get("name", "").lower()
+        bot_color = "white" if white == bot_low else "black"
+        opening = (g.get("opening") or {}).get("name")
+        if not opening:
+            continue
+        name = opening.split(":")[0].strip()
+        winner = g.get("winner")
+        result = "draw" if not winner else ("win" if winner == bot_color else "loss")
+        b = buckets[bot_color].setdefault(name, {"plays": 0, "win": 0, "draw": 0, "loss": 0})
+        b["plays"] += 1
+        b[result]  += 1
+
+    def top(bucket: dict) -> list[dict]:
+        items = [{"name": n, **v} for n, v in bucket.items()]
+        items.sort(key=lambda x: -x["plays"])
+        return items[:top_n]
+
+    return {"white": top(buckets["white"]), "black": top(buckets["black"])}
 
 
 def engine_stats(service: str) -> dict:
@@ -185,6 +552,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._serve_json(json.loads(BUILD_INFO_PATH.read_text()))
             except Exception:
                 self._serve_json({})
+        elif path == "/api/system":
+            bot = self._bot_param()
+            self._serve_json(system_stats(bot["service"]))
+        elif path == "/api/move-history":
+            self._serve_json(move_history(self._bot_param()["service"]))
+        elif path == "/api/bench-result":
+            self._serve_json(last_bench_result() or {})
+        elif path == "/api/gauntlet-result":
+            self._serve_json(last_gauntlet_result() or {})
         elif path == "/api/engine-stream":
             self._serve_engine_sse(self._bot_param()["service"])
         else:
@@ -256,8 +632,11 @@ class Handler(BaseHTTPRequestHandler):
                 if game.get("id"):
                     current_game = game
 
+        # Fetch wider than the 10-row display so games-today and the opening
+        # repertoire have enough data to be useful. 50 covers a typical day of
+        # bot play without straining the lichess rate limit.
         recent_raw = lichess_get(
-            f"/api/games/user/{name.lower()}?max=10&moves=false&clocks=false&opening=true",
+            f"/api/games/user/{name.lower()}?max=50&moves=false&clocks=false&opening=true",
             token, ndjson=True,
         )
         recent = recent_raw or []
@@ -288,6 +667,10 @@ class Handler(BaseHTTPRequestHandler):
             "current_game":      current_game,
             "recent_games":      recent[:10],
             "engine_stats":      engine_stats(service),
+            "system":            system_stats(service),
+            "build_id":          latest_build_id(service),
+            "games_today":       games_today_count(recent, name),
+            "openings":          opening_repertoire(recent, name),
         }
 
 
