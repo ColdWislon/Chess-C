@@ -1083,8 +1083,22 @@ async function refreshCharts(currentGameId) {
 
   card.style.display = '';
   document.getElementById('chart-empty').style.display = 'none';
-  // Clamp score to ±1000 cp for display (mate scores would otherwise blow the y-axis).
-  const scores = history.map(e => e.score_cp == null ? null : Math.max(-1000, Math.min(1000, e.score_cp)));
+  // Mate scores from the engine arrive as ±~900000 cp (SEARCH_MATE = 900000,
+  // anything beyond MATE_BOUND = 899000 is a mate). Mapping those into the
+  // ±1000-cp clamp would flatten an "M3" and an "M30" into the same flat
+  // ceiling — instead we pin them at the chart edge AND surface the mate
+  // distance in the chip / via a triangle marker.
+  const MATE_BOUND = 899000;
+  const isMate = cp => cp != null && Math.abs(cp) > MATE_BOUND;
+  // Plies to mate = SEARCH_MATE (900000) − |score|. Full moves = (plies+1)/2.
+  const matePlies = cp => Math.max(1, 900000 - Math.abs(cp));
+  const mateLabel = cp => (cp > 0 ? 'M' : '-M') + Math.ceil(matePlies(cp) / 2);
+
+  const scores = history.map(e => {
+    if (e.score_cp == null) return null;
+    if (isMate(e.score_cp)) return e.score_cp > 0 ? 1000 : -1000;  // pin to edge
+    return Math.max(-1000, Math.min(1000, e.score_cp));
+  });
   const times  = history.map(e => e.time_ms);
   // Move-number axis uses the entries' own move_num so the x-axis matches
   // the engine's absolute move count — including the book offset.
@@ -1106,8 +1120,18 @@ async function refreshCharts(currentGameId) {
   });
 
   const last = history[history.length - 1];
-  document.getElementById('chart-score-latest').textContent =
-    last.score_cp == null ? '' : ((last.score_cp/100).toFixed(2) + ` @ d${last.depth ?? '?'}`);
+  if (last.score_cp == null) {
+    document.getElementById('chart-score-latest').textContent = '';
+  } else if (isMate(last.score_cp)) {
+    // Mate scores get a colored chip so they jump out
+    const lbl = mateLabel(last.score_cp);
+    const cls = last.score_cp > 0 ? 'score-pos' : 'score-neg';
+    document.getElementById('chart-score-latest').innerHTML =
+      `<span class="${cls}" style="font-weight:600">${lbl}</span> @ d${last.depth ?? '?'}`;
+  } else {
+    document.getElementById('chart-score-latest').textContent =
+      (last.score_cp/100).toFixed(2) + ` @ d${last.depth ?? '?'}`;
+  }
   document.getElementById('chart-time-latest').textContent =
     last.time_ms == null ? '' : fmtMs(last.time_ms);
 

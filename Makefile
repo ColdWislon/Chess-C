@@ -82,4 +82,11 @@ book.bin:
 	@mv book.bin.tmp book.bin
 	@echo "book.bin: $$(du -h book.bin | cut -f1)"
 
-.PHONY: release debug test clean bench bench-timed bench-baseline bench-compare bench-compare-timed book FORCE
+# ── Dashboard build-info ──────────────────────────────────────────
+# Regenerate build-info.json from `git log` so the dashboard's
+# "Engine build" card reflects what's actually committed. Safe to
+# rerun any time; it just overwrites the file.
+build-info:
+	@python3 tools/gen_build_info.py
+
+.PHONY: release debug test clean bench bench-timed bench-baseline bench-compare bench-compare-timed book build-info FORCE

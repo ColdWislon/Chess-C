@@ -397,13 +397,13 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
                     ctx->killers[ply][0] = m;
                 }
                 int *h = &ctx->history[pos->side][MOVE_FROM(m)][MOVE_TO(m)];
-                *h += depth * depth;
-                if (*h > HISTORY_MAX) {
-                    for (int c = 0; c < 2; c++)
-                        for (int f = 0; f < 64; f++)
-                            for (int t = 0; t < 64; t++)
-                                ctx->history[c][f][t] /= 2;
-                }
+                /* History gravity: each update is pulled toward HISTORY_MAX
+                   proportionally to its current size. Self-limiting — values
+                   asymptote to HISTORY_MAX without ever crossing it, so no
+                   global /2 cliff is needed on the hot cutoff path. The
+                   bonus magnitude is the usual depth*depth. */
+                int bonus = depth * depth;
+                *h += bonus - (*h) * bonus / HISTORY_MAX;
                 /* Counter-move: "after the opponent played prev_move, this
                    quiet move m caused a cutoff." Skip at the root (no prev). */
                 if (prev_move != MOVE_NONE) {

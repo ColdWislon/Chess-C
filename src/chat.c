@@ -1,5 +1,6 @@
 #include "chat.h"
 #include "search.h"
+#include "build_id.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -26,8 +27,7 @@ static void fmt_score(int cp, char *buf, int n) {
 
 int chat_build(const ChatContext *ctx, char *out, int out_size) {
     if (ctx->is_first_move) {
-        snprintf(out, out_size,
-                 "engine ready, hash 64M, PVS + null-move + LMR");
+        snprintf(out, out_size, "engine ready, build %s", BUILD_GIT_SHA);
         return 1;
     }
 
