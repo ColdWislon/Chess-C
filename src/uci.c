@@ -59,6 +59,13 @@ void uci_run(OpeningBook *book) {
     bool have_last     = false;
     int  threads       = 1;   /* honored if Threads UCI option is set */
 
+    /* Game-history hashes: positions we passed through before the current
+       root, in chronological order. Seeded into the search's rep_stack so
+       2-fold via game history is visible (the search's own stack only knows
+       positions reached inside its own tree). */
+    uint64_t game_history[1024];
+    int      game_history_len = 0;
+
     char line[4096];
     while (fgets(line, sizeof(line), stdin)) {
         /* strip newline */
@@ -106,8 +113,9 @@ void uci_run(OpeningBook *book) {
         } else if (strcmp(line, "ucinewgame") == 0) {
             pos_startpos(&pos);
             tt_clear(&tt);
-            is_first_move = true;
-            have_last     = false;
+            is_first_move    = true;
+            have_last        = false;
+            game_history_len = 0;
             /* Re-emit build id at game start so the dashboard's journal
                scan (which only looks back a few hundred lines) finds it
                even when the engine has been running for a long time. */
@@ -117,6 +125,8 @@ void uci_run(OpeningBook *book) {
         } else if (strncmp(line, "position", 8) == 0) {
             const char *p = line + 8;
             while (*p == ' ') p++;
+            /* New root position: clear the history walk we're about to rebuild. */
+            game_history_len = 0;
             if (strncmp(p, "startpos", 8) == 0) {
                 pos_startpos(&pos);
                 p += 8;
@@ -146,6 +156,12 @@ void uci_run(OpeningBook *book) {
                     while (*m && *m != ' ' && i < 7) token[i++] = *m++;
                     Move mv = move_from_uci(&pos, token);
                     if (mv != MOVE_NONE) {
+                        /* Push the position we're leaving BEFORE doing the
+                           move — gives us the chronological list of prior
+                           positions, with the current root excluded. */
+                        if (game_history_len <
+                            (int)(sizeof(game_history)/sizeof(game_history[0])))
+                            game_history[game_history_len++] = pos.hash;
                         Position next;
                         pos_do_move(&pos, mv, &next);
                         pos = next;
@@ -167,9 +183,11 @@ void uci_run(OpeningBook *book) {
 
             Move best = book_probe(book, &pos);
             if (best == MOVE_NONE)
-                best = find_best_move_smp(&pos, time_ms,
-                                          depth > 0 ? depth : 64,
-                                          &tt, threads, &score, &have_score);
+                best = find_best_move_smp_hist(&pos, time_ms,
+                                               depth > 0 ? depth : 64,
+                                               &tt, threads,
+                                               game_history, game_history_len,
+                                               &score, &have_score);
 
             if (best != MOVE_NONE) {
                 ChatContext cc = {

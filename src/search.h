@@ -22,6 +22,18 @@ Move find_best_move_score(const Position *pos, int time_ms, int max_depth,
 Move find_best_move_smp(const Position *pos, int time_ms, int max_depth, TT *tt,
                         int threads, int *out_score, bool *out_have_score);
 
+/* Variant of find_best_move_smp that seeds each worker's repetition stack
+   with `history_len` prior game-position hashes (in chronological order,
+   excluding the current root). Used by the UCI front-end to feed the
+   `position … moves …` walk into 2-fold detection; without this, the search
+   only sees positions reached inside the tree and can blunder into a draw
+   the arbiter will claim from game history. Pass history=NULL/len=0 for the
+   plain entry-point semantics. */
+Move find_best_move_smp_hist(const Position *pos, int time_ms, int max_depth,
+                             TT *tt, int threads,
+                             const uint64_t *history, int history_len,
+                             int *out_score, bool *out_have_score);
+
 /* Deterministic fixed-depth search used by the bench infrastructure.
    Single-threaded, effectively no time limit — runs full iterative deepening
    to exactly `depth`. Returns the chosen move, the last-iteration score, and

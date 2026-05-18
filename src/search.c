@@ -582,6 +582,10 @@ typedef struct {
     atomic_bool     *global_stop;
     bool             is_main;
 
+    /* Optional game-history seed for repetition detection. NULL/0 = none. */
+    const uint64_t  *history;
+    int              history_len;
+
     /* outputs */
     Move best_move;
     int  best_score;
@@ -595,6 +599,19 @@ static void *worker_run(void *arg) {
     ctx.deadline_ms = w->deadline_ms;
     ctx.global_stop = w->global_stop;
     ctx.root_best   = MOVE_NONE;
+
+    /* Seed rep_stack with game-history hashes so 2-fold via prior moves is
+       visible to is_repetition. Capacity matches rep_stack (1024); excess
+       (very long games) is truncated from the front since is_repetition is
+       bounded by halfmove anyway. */
+    if (w->history && w->history_len > 0) {
+        int n   = w->history_len;
+        int cap = (int)(sizeof(ctx.rep_stack) / sizeof(ctx.rep_stack[0]));
+        const uint64_t *src = w->history;
+        if (n > cap) { src += (n - cap); n = cap; }
+        memcpy(ctx.rep_stack, src, (size_t)n * sizeof(uint64_t));
+        ctx.rep_top = n;
+    }
 
     IdResult r = run_id(&ctx, w->pos, w->max_depth, w->tt, w->is_main);
 
@@ -662,6 +679,14 @@ TimedBenchResult search_bench_timed(const Position *pos, int time_ms, TT *tt) {
 
 Move find_best_move_smp(const Position *pos, int time_ms, int max_depth, TT *tt,
                         int threads, int *out_score, bool *out_have_score) {
+    return find_best_move_smp_hist(pos, time_ms, max_depth, tt, threads,
+                                   NULL, 0, out_score, out_have_score);
+}
+
+Move find_best_move_smp_hist(const Position *pos, int time_ms, int max_depth,
+                             TT *tt, int threads,
+                             const uint64_t *history, int history_len,
+                             int *out_score, bool *out_have_score) {
     if (threads < 1) threads = 1;
     if (max_depth <= 0 || max_depth > MAX_PLY) max_depth = MAX_PLY;
     if (out_have_score) *out_have_score = false;
@@ -681,6 +706,8 @@ Move find_best_move_smp(const Position *pos, int time_ms, int max_depth, TT *tt,
         workers[i].deadline_ms  = deadline;
         workers[i].global_stop  = &global_stop;
         workers[i].is_main      = (i == 0);
+        workers[i].history      = history;
+        workers[i].history_len  = history_len;
         workers[i].best_move    = MOVE_NONE;
     }
 
