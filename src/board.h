@@ -93,7 +93,12 @@ void pos_do_move(const Position *src, Move m, Position *dst);
 
 /* ── Move generation ── */
 int pos_gen_moves(const Position *pos, Move *moves);    /* legal */
-int pos_gen_captures(const Position *pos, Move *moves); /* pseudo-legal captures, for qsearch */
+int pos_gen_captures(const Position *pos, Move *moves); /* legal captures */
+/* Pseudo-legal captures (no legality filter). Used by qsearch where
+   SEE-pruning can drop ~half of captures before paying the legality cost;
+   the caller must verify legality (e.g., via sq_attacked_by on the king
+   after pos_do_move) for the survivors. */
+int pos_gen_pseudo_captures(const Position *pos, Move *moves);
 
 /* ── Queries ── */
 bool pos_in_check(const Position *pos);                 /* is side-to-move in check? */

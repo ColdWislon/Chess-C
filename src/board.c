@@ -720,6 +720,10 @@ int pos_gen_captures(const Position *pos, Move *moves) {
     return filter_legal(pos, pseudo, n, moves);
 }
 
+int pos_gen_pseudo_captures(const Position *pos, Move *moves) {
+    return gen_pseudo(pos, moves, true);
+}
+
 /* ══════════════════════════════════════════════════════════
    Position setup
    ══════════════════════════════════════════════════════════ */

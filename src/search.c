@@ -156,7 +156,9 @@ static int quiescence(const Position *pos, int alpha, int beta,
         int stand_pat = evaluate(pos);
         if (stand_pat >= beta) return beta;
         if (stand_pat > alpha) alpha = stand_pat;
-        n = pos_gen_captures(pos, moves);
+        /* Pseudo-captures only — we'll SEE-prune before paying legality cost,
+           saving a pos_do_move + sq_attacked_by per discarded capture. */
+        n = pos_gen_pseudo_captures(pos, moves);
     }
 
     int scores[MAX_MOVES];
@@ -184,6 +186,17 @@ static int quiescence(const Position *pos, int alpha, int beta,
 
         Position child;
         pos_do_move(pos, m, &child);
+
+        /* Inline legality filter — only for the non-in-check path, since
+           the in-check branch generated already-legal moves. Doing this
+           per-surviving capture (after SEE) saves the pos_do_move +
+           sq_attacked_by that filter_legal would have done for every
+           SEE-discarded capture too. */
+        if (!in_check) {
+            int our_king = lsb64(child.pieces[pos->side][KING]);
+            if (sq_attacked_by(&child, our_king, child.side)) continue;
+        }
+
         int score = -quiescence(&child, -beta, -alpha, ctx, ply + 1);
         if (ctx->stopped) return 0;
         if (score >= beta) return beta;
