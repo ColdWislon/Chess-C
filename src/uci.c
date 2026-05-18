@@ -13,12 +13,16 @@
 static int parse_time(const char *line, const Position *pos, int *depth_out) {
     /* Parse go command time fields; returns time in ms for our side.
        *depth_out is set if "depth N" present, else 0. */
-    long wtime = -1, btime = -1, movetime = -1, movestogo = -1, depth = 0;
+    long wtime = -1, btime = -1, winc = 0, binc = 0;
+    long movetime = -1, movestogo = -1, depth = 0;
     const char *p = line;
     while (*p) {
         while (*p == ' ') p++;
+        /* Order matters: longer prefixes first so "winc" doesn't match "wtime". */
         if      (strncmp(p,"wtime",5)==0)    { p+=5; wtime     = atol(p); }
         else if (strncmp(p,"btime",5)==0)    { p+=5; btime     = atol(p); }
+        else if (strncmp(p,"winc",4)==0)     { p+=4; winc      = atol(p); }
+        else if (strncmp(p,"binc",4)==0)     { p+=4; binc      = atol(p); }
         else if (strncmp(p,"movetime",8)==0) { p+=8; movetime  = atol(p); }
         else if (strncmp(p,"movestogo",9)==0){ p+=9; movestogo = atol(p); }
         else if (strncmp(p,"depth",5)==0)    { p+=5; depth     = atol(p); }
@@ -31,10 +35,14 @@ static int parse_time(const char *line, const Position *pos, int *depth_out) {
         return (int)(t > 1 ? t : 1);
     }
     long our_time = (pos->side == WHITE) ? wtime : btime;
+    long inc      = (pos->side == WHITE) ? winc  : binc;
     if (our_time <= 0) our_time = 10000;
     long moves_left = (movestogo > 0) ? movestogo : 30;
-    long alloc = our_time / moves_left;
+    long alloc = our_time / moves_left + (inc > 0 ? inc * 3 / 4 : 0);
     alloc = alloc * 9 / 10;
+    /* Never spend more than half our remaining time on a single move — guards
+       against blowing the clock when inc*3/4 swamps our_time at low time. */
+    if (alloc > our_time / 2) alloc = our_time / 2;
     if (alloc < 100) alloc = 100;
     return (int)alloc;
 }
