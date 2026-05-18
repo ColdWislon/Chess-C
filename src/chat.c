@@ -74,6 +74,13 @@ int chat_build(const ChatContext *ctx, char *out, int out_size) {
     }
 
     if (ctx->have_score && ctx->have_last) {
+        /* If last_score was in the mate band but current isn't, the raw delta
+           (~±90000+ cp) blows past SWING_THRESHOLD_CP and would emit a
+           visually absurd "eval +8999.97 -> +0.50" line. Skip in that case —
+           current=mate is already handled by the mate-priority block above. */
+        if (ctx->last_score >=  SEARCH_MATE - MATE_WINDOW ||
+            ctx->last_score <= -SEARCH_MATE + MATE_WINDOW)
+            return 0;
         int delta = ctx->score - ctx->last_score;
         int abs_delta = delta < 0 ? -delta : delta;
         if (abs_delta >= SWING_THRESHOLD_CP) {
