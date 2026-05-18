@@ -1,10 +1,12 @@
 #include "board.h"
 #include "opening.h"
+#include "search.h"
 #include "uci.h"
 #include <stdio.h>
 
 int main(void) {
     board_init();
+    search_init();
 
     OpeningBook *book = book_load("/home/bertrand/chess-c/book.bin");
     if (!book)

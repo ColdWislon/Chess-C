@@ -1,6 +1,6 @@
 CC      = gcc
 CFLAGS  = -std=c11 -Wall -Wextra -Isrc -pthread
-LDFLAGS = -pthread
+LDFLAGS = -pthread -lm
 
 SRC = src/board.c src/tt.c src/eval.c src/search.c \
       src/opening.c src/perft.c src/chat.c src/bench.c src/uci.c src/main.c

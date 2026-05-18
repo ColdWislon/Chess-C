@@ -10,10 +10,18 @@
 #include <stdlib.h>
 #include <stdatomic.h>
 #include <pthread.h>
+#include <math.h>
 
 #define MAX_PLY      64
 #define HISTORY_MAX  16384
 #define MATE_BOUND   (SEARCH_MATE - 1000)
+
+/* LMR reduction lookup, indexed [depth][moves_searched]. Populated by
+   search_init() with the standard 0.5 + log(d)*log(m)/2 formula — smoothly
+   reduces more at higher depth and later move number than the old constant-
+   plus-step formula did. Entries are clamped non-negative; the move-loop
+   later clamps to <= depth-1 to keep the reduced search at depth >= 1. */
+static int LMR[64][64];
 
 typedef struct {
     uint64_t nodes;
@@ -367,11 +375,23 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
             score = -alpha_beta(&child, depth - 1, -beta, -alpha,
                                 ctx, tt, ply + 1, true, m);
         } else {
-            /* LMR for late quiet moves at sufficient depth */
+            /* LMR for late quiet moves at sufficient depth. Table is
+               log(d)*log(m)/2 + 0.5; we scale it down a notch for PV nodes
+               and for moves with strong ordering signals (killers / counter)
+               so promising quiets get tried near full depth. */
             int reduction = 0;
-            if (depth >= 3 && quiet && !in_check && searched >= 4) {
-                reduction = 1;
-                if (searched >= 8) reduction = 2;
+            if (depth >= 3 && quiet && !in_check && searched >= 2) {
+                int dd = depth    < 64 ? depth    : 63;
+                int mm = searched < 64 ? searched : 63;
+                reduction = LMR[dd][mm];
+                if (is_pv) reduction--;
+                if (m == ctx->killers[ply][0] ||
+                    m == ctx->killers[ply][1] ||
+                    m == counter)
+                    reduction--;
+                if (reduction < 0)            reduction = 0;
+                if (reduction >= depth - 1)   reduction = depth - 2;
+                if (reduction < 0)            reduction = 0;
             }
 
             /* Zero-window search */
@@ -640,6 +660,20 @@ static void *worker_run(void *arg) {
     w->best_score    = r.best_score;
     w->any_completed = r.any_completed;
     return NULL;
+}
+
+void search_init(void) {
+    /* Idempotent: recompute the LMR table from scratch each call. Row/col 0
+       stay zero (we never reduce with no depth or zero moves searched). */
+    for (int d = 0; d < 64; d++) LMR[d][0] = 0;
+    for (int m = 0; m < 64; m++) LMR[0][m] = 0;
+    for (int d = 1; d < 64; d++) {
+        for (int m = 1; m < 64; m++) {
+            double r  = 0.5 + log((double)d) * log((double)m) / 2.0;
+            int    ir = (int)r;
+            LMR[d][m] = ir < 0 ? 0 : ir;
+        }
+    }
 }
 
 Move find_best_move(const Position *pos, int time_ms, TT *tt) {

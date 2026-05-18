@@ -6,6 +6,10 @@
 #define SEARCH_INF       1000000
 #define SEARCH_MATE      900000
 
+/* One-shot startup init for search-internal tables (LMR reduction lookup, …).
+   Safe to call multiple times — idempotent. Call after board_init(). */
+void search_init(void);
+
 /* Returns MOVE_NONE if no move available.
    If `out_score` is non-NULL, it receives the score of the last completed
    iteration (side-to-move POV, centipawns). Untouched if no iteration completed. */
