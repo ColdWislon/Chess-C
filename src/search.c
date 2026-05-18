@@ -315,6 +315,12 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
     int  best       = -SEARCH_INF;
     int  searched   = 0;
 
+    /* Track quiets that actually got searched (i.e., survived LMP/futility),
+       so on a cutoff we can apply symmetric history malus to the earlier
+       ones. Cap at 64 — beyond that the malus signal is saturated anyway. */
+    Move quiets_searched[64];
+    int  n_quiets_searched = 0;
+
     /* Frontier futility: at depth==1, if our static eval plus a margin
        still can't reach alpha, quiet moves are unlikely to help. Computed
        once outside the loop. */
@@ -346,6 +352,11 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
         if (futile_frontier && quiet && searched > 0) {
             continue;
         }
+
+        /* Record this quiet for malus on later cutoff (last entry will be
+           the cutoff move itself; we'll skip it below). */
+        if (quiet && n_quiets_searched < 64)
+            quiets_searched[n_quiets_searched++] = m;
 
         Position child;
         pos_do_move(pos, m, &child);
@@ -404,6 +415,16 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
                    bonus magnitude is the usual depth*depth. */
                 int bonus = depth * depth;
                 *h += bonus - (*h) * bonus / HISTORY_MAX;
+                /* Malus to earlier quiets that got searched but didn't cut.
+                   Last quiets_searched entry is m itself — skip it. Same
+                   gravity formula with negative bonus: values asymptote
+                   toward -HISTORY_MAX. Improves move ordering on revisit
+                   by suppressing quiets that previously failed to cut. */
+                for (int q = 0; q < n_quiets_searched - 1; q++) {
+                    Move qm = quiets_searched[q];
+                    int *qh = &ctx->history[pos->side][MOVE_FROM(qm)][MOVE_TO(qm)];
+                    *qh += -bonus - (*qh) * bonus / HISTORY_MAX;
+                }
                 /* Counter-move: "after the opponent played prev_move, this
                    quiet move m caused a cutoff." Skip at the root (no prev). */
                 if (prev_move != MOVE_NONE) {
