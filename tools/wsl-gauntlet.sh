@@ -17,7 +17,14 @@
 #   OPENINGS=...       path to EPD file. Default: tools/openings-small.epd
 #   PGN_OUT=...        path to PGN output. Default: texel-wsl-gauntlet.pgn
 #
-# Requires: cutechess-cli (sudo apt install cutechess-cli)
+# Requires: fast-chess OR cutechess-cli on $PATH.
+#   fast-chess (recommended — faster, modern, simpler deps):
+#     git clone --depth 1 https://github.com/Disservin/fast-chess.git ~/fast-chess
+#     cd ~/fast-chess && make -j$(nproc)
+#     sudo ln -sf "$(pwd)/fast-chess" /usr/local/bin/fast-chess
+#   cutechess-cli (older, drop-in compatible CLI; not in newer Ubuntu repos):
+#     sudo apt install cutechess-cli
+#
 # Refuses to run if src/eval.c is dirty — commit or stash your edits first.
 
 set -euo pipefail
@@ -47,9 +54,21 @@ echo "  pgn out:     $PGN_OUT"
 echo "════════════════════════════════════════════════════════════"
 
 # ── Sanity checks ────────────────────────────────────────────────
-command -v cutechess-cli >/dev/null \
-    || { echo "ERROR: cutechess-cli not found. Install with:"; \
-         echo "    sudo apt install cutechess-cli"; exit 1; }
+# Pick fast-chess if available (it's faster), otherwise cutechess-cli. Both
+# accept identical -engine/-each/-games/-rounds/-concurrency/-openings flags.
+if command -v fast-chess >/dev/null; then
+    MATCH_BIN=fast-chess
+elif command -v cutechess-cli >/dev/null; then
+    MATCH_BIN=cutechess-cli
+else
+    echo "ERROR: neither fast-chess nor cutechess-cli found in PATH."
+    echo "Recommended (fast-chess):"
+    echo "    git clone --depth 1 https://github.com/Disservin/fast-chess.git ~/fast-chess"
+    echo "    cd ~/fast-chess && make -j\$(nproc)"
+    echo "    sudo ln -sf \"\$(pwd)/fast-chess\" /usr/local/bin/fast-chess"
+    exit 1
+fi
+echo "  match runner: $MATCH_BIN"
 [ -f "$SNAPSHOT" ] \
     || { echo "ERROR: snapshot file not found: $SNAPSHOT"; exit 1; }
 [ -f "$OPENINGS" ] \
@@ -90,7 +109,7 @@ ls -l chess-engine-c chess-engine-c.baseline chess-engine-c.texel
 echo
 echo "[4/4] cutechess-cli match starting…"
 echo
-cutechess-cli \
+"$MATCH_BIN" \
     -engine cmd="$REPO/chess-engine-c.baseline" name=baseline proto=uci \
     -engine cmd="$REPO/chess-engine-c.texel"    name=texel    proto=uci \
     -each tc=inf st="$ST_SEC" \
