@@ -109,6 +109,14 @@ ls -l chess-engine-c chess-engine-c.baseline chess-engine-c.texel
 echo
 echo "[4/4] cutechess-cli match starting…"
 echo
+# fast-chess and cutechess-cli disagree on -pgnout syntax:
+#   fast-chess:    -pgnout file=PATH        (key=value)
+#   cutechess-cli: -pgnout PATH             (positional)
+case "$MATCH_BIN" in
+    fast-chess)    PGNOUT_ARGS=(-pgnout "file=$PGN_OUT") ;;
+    cutechess-cli) PGNOUT_ARGS=(-pgnout "$PGN_OUT")      ;;
+esac
+
 "$MATCH_BIN" \
     -engine cmd="$REPO/chess-engine-c.baseline" name=baseline proto=uci \
     -engine cmd="$REPO/chess-engine-c.texel"    name=texel    proto=uci \
@@ -118,7 +126,7 @@ echo
     -openings file="$OPENINGS" format=epd order=random \
     -repeat \
     -recover \
-    -pgnout "$PGN_OUT" \
+    "${PGNOUT_ARGS[@]}" \
     -ratinginterval 10
 
 echo
