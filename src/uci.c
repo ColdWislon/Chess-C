@@ -327,14 +327,29 @@ void uci_run(OpeningBook *book) {
             run_bench(d, &tt);
 
         } else if (strncmp(line, "texel", 5) == 0) {
-            /* `texel <path-to-epd>` — runs Texel tuning on the given corpus.
-               Synchronous, can take hours on the Pi for a large corpus.
-               Best run on a faster host (the tuned values get pasted back
-               into src/eval.c afterwards). */
+            /* `texel <path-to-epd> [material|full]`
+               Runs Texel tuning on the given corpus. Synchronous, can take
+               hours on the Pi for a large corpus — best run on a faster
+               host. The tuned values get pasted back into src/eval.c.
+               Mode: `material` (10 params, ~minutes, hard to overfit) or
+               `full` (778 params, default — material + all 12 PSTs). */
             const char *q = line + 5;
             while (*q == ' ') q++;
-            if (*q) texel_run(q);
-            else    fprintf(stderr, "usage: texel <epd-path>\n");
+            if (!*q) {
+                fprintf(stderr, "usage: texel <epd-path> [material|full]\n");
+            } else {
+                /* Split off the path (first whitespace-bounded token) so
+                   the mode flag isn't smuggled into the filename. */
+                char path[1024];
+                int  i = 0;
+                while (*q && *q != ' ' && *q != '\t' && i < (int)sizeof(path)-1)
+                    path[i++] = *q++;
+                path[i] = '\0';
+                while (*q == ' ' || *q == '\t') q++;
+                TexelMode mode = TEXEL_MODE_FULL;
+                if (strncmp(q, "material", 8) == 0) mode = TEXEL_MODE_MATERIAL;
+                texel_run(path, mode);
+            }
 
         } else if (strncmp(line, "perft", 5) == 0) {
             int depth = atoi(line + 6);

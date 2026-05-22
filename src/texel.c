@@ -15,8 +15,11 @@
 
 typedef struct {
     int *ptr;
-    int  lo, hi;     /* inclusive bounds; clamp at apply time */
-    char name[24];   /* short name for the snapshot dump */
+    int  lo, hi;        /* inclusive bounds; clamp at apply time */
+    int  default_val;   /* value at registration time — used by the L2
+                           regularizer to pull noisy params back toward sane
+                           starting values when the data signal is weak */
+    char name[24];      /* short name for the snapshot dump */
 } TuneParam;
 
 static TuneParam params[MAX_PARAMS];
@@ -32,6 +35,13 @@ static int       n_pos     = 0;
    the actual cp scale of THIS eval (not Stockfish's). */
 static double K = 1.0;
 
+/* L2 regularization strength. Penalizes (param - default)² so noisy
+   coordinate descent on a small/noisy corpus can't push individual params
+   to wild values. Tuned so a 100cp deviation on one param adds ~1.3e-6 to
+   MSE — meaningful when the data signal is weak but invisible when it's
+   strong. Set to 0 to disable. */
+#define TEXEL_LAMBDA 1.0e-7
+
 static double now_s(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -44,9 +54,24 @@ static double sigmoid(int score_cp) {
     return 1.0 / (1.0 + pow(10.0, -K * (double)score_cp / 400.0));
 }
 
+/* L2 regularization term — sum of squared deviations from each param's
+   default, scaled by TEXEL_LAMBDA. Pulls noisy directions back toward the
+   sane starting values without dominating real signal. Cheap (O(n_params)
+   per call vs O(n_pos) for the data term, which dominates by ~100x). */
+static double reg_term(void) {
+    if (TEXEL_LAMBDA == 0.0) return 0.0;
+    double r = 0.0;
+    for (int i = 0; i < n_params; i++) {
+        double delta = (double)(*params[i].ptr - params[i].default_val);
+        r += delta * delta;
+    }
+    return TEXEL_LAMBDA * r;
+}
+
 /* Mean squared error of sigmoid(eval) against the labeled outcome, over the
-   whole corpus. evaluate() returns side-to-move POV, so we flip when black
-   is to move to get a uniform white-POV score. */
+   whole corpus, PLUS the L2 regularization term. evaluate() returns
+   side-to-move POV, so we flip when black is to move to get a uniform
+   white-POV score. */
 static double mse(void) {
     double E = 0.0;
     for (int i = 0; i < n_pos; i++) {
@@ -55,7 +80,7 @@ static double mse(void) {
         double d = results[i] - sigmoid(s);
         E += d * d;
     }
-    return E / (double)n_pos;
+    return E / (double)n_pos + reg_term();
 }
 
 /* Coarse grid search then refine — K's optimum is broad and unimodal in
@@ -76,41 +101,51 @@ static void register_param(int *p, int lo, int hi, const char *name) {
         fprintf(stderr, "[texel] param overflow (>%d)\n", MAX_PARAMS);
         return;
     }
-    params[n_params].ptr = p;
-    params[n_params].lo  = lo;
-    params[n_params].hi  = hi;
+    params[n_params].ptr         = p;
+    params[n_params].lo          = lo;
+    params[n_params].hi          = hi;
+    params[n_params].default_val = *p;          /* snapshot of the starting value */
     snprintf(params[n_params].name, sizeof(params[n_params].name), "%s", name);
     n_params++;
 }
 
-/* Register material (skipping KING — both sides always have one, so its value
-   would only shift every eval by a constant) and all 12 PSTs. */
-static void register_all(void) {
-    static const char *PIECE = "PNBRQ";   /* indices 0..4 */
+/* Material params only — 10 of them (5 pieces × MG/EG, skipping KING because
+   both sides always have one so its value is a constant offset). The
+   smaller param set is much harder to overfit on a noisy bot-vs-bot corpus.
+   Bounds 0-3000 give enough headroom that even a queen-EG can find its
+   true optimum without saturating (the previous 0-2000 was binding on the
+   first run). */
+static void register_material(void) {
+    static const char *PIECE = "PNBRQ";
     char buf[24];
     for (int p = 0; p < 5; p++) {
         snprintf(buf, sizeof(buf), "MAT_MG_%c", PIECE[p]);
-        register_param(&MATERIAL_MG[p], 0, 2000, buf);
+        register_param(&MATERIAL_MG[p], 0, 3000, buf);
         snprintf(buf, sizeof(buf), "MAT_EG_%c", PIECE[p]);
-        register_param(&MATERIAL_EG[p], 0, 2000, buf);
+        register_param(&MATERIAL_EG[p], 0, 3000, buf);
     }
-    /* Bundle pointers + names for the 6 PST pairs to avoid hand-unrolling 12
-       blocks. KING is included — PSTs aren't a constant offset because king
-       position genuinely varies. */
-    static const char *PIECE6   = "PNBRQK";
+}
+
+/* PSTs: all 6 pieces × MG/EG × 64 squares = 768 params. KING is included
+   because king-square placement genuinely varies (back in MG, central in EG)
+   — that's what makes the eval "tapered". Bounds ±500 instead of the
+   previous ±200 — Stockfish-class engines routinely have PST squares in
+   the ±300..±400 range, and the tight ±200 was saturating on the first run. */
+static void register_psts(void) {
+    static const char *PIECE6 = "PNBRQK";
     int *pst_mg[6] = { PST_PAWN_MG, PST_KNIGHT_MG, PST_BISHOP_MG,
                        PST_ROOK_MG, PST_QUEEN_MG,  PST_KING_MG };
     int *pst_eg[6] = { PST_PAWN_EG, PST_KNIGHT_EG, PST_BISHOP_EG,
                        PST_ROOK_EG, PST_QUEEN_EG,  PST_KING_EG };
+    char buf[24];
     for (int p = 0; p < 6; p++) {
         for (int sq = 0; sq < 64; sq++) {
             snprintf(buf, sizeof(buf), "PST_%c_MG[%d]", PIECE6[p], sq);
-            register_param(&pst_mg[p][sq], -200, 200, buf);
+            register_param(&pst_mg[p][sq], -500, 500, buf);
             snprintf(buf, sizeof(buf), "PST_%c_EG[%d]", PIECE6[p], sq);
-            register_param(&pst_eg[p][sq], -200, 200, buf);
+            register_param(&pst_eg[p][sq], -500, 500, buf);
         }
     }
-    fprintf(stderr, "[texel] registered %d parameters\n", n_params);
 }
 
 /* EPD loader. Each line: "<FEN fields...> <stuff containing the result>".
@@ -206,9 +241,18 @@ static void snapshot(const char *path) {
     fclose(f);
 }
 
-void texel_run(const char *epd_path) {
+void texel_run(const char *epd_path, TexelMode mode) {
     if (!load_epd(epd_path)) return;
-    register_all();
+
+    /* Always register material — material is what every PST and structure
+       term plugs into, so freezing it while tuning PSTs would chase the
+       wrong optimum. PSTs are optional (material-only mode skips them for
+       a fast 10-param smoke test that's almost impossible to overfit). */
+    register_material();
+    if (mode == TEXEL_MODE_FULL) register_psts();
+    fprintf(stderr, "[texel] mode=%s, registered %d parameters\n",
+            (mode == TEXEL_MODE_FULL) ? "full" : "material-only", n_params);
+
     fit_K();
 
     double best_E = mse();

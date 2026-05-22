@@ -20,4 +20,9 @@
    Best tuned values are snapshotted to ./texel-snapshot.txt after every
    pass, so a SIGINT mid-run doesn't lose work. */
 
-void texel_run(const char *epd_path);
+typedef enum {
+    TEXEL_MODE_FULL     = 0,   /* material + all 12 PSTs (778 params) */
+    TEXEL_MODE_MATERIAL = 1,   /* material only (10 params) — fast smoke test */
+} TexelMode;
+
+void texel_run(const char *epd_path, TexelMode mode);
