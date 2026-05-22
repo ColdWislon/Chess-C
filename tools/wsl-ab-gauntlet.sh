@@ -68,11 +68,23 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     echo "       commit, stash (git stash), or revert before running A/B."
     exit 1
 fi
-# Verify both refs exist
-git rev-parse --verify "$REF_A" >/dev/null 2>&1 \
-    || { echo "ERROR: ref-A '$REF_A' not found in git"; exit 1; }
-git rev-parse --verify "$REF_B" >/dev/null 2>&1 \
-    || { echo "ERROR: ref-B '$REF_B' not found in git"; exit 1; }
+# Resolve a ref: if not local, try fetching from origin and creating a local
+# branch. Avoids the common "git pull doesn't update other branches" gotcha.
+ensure_ref() {
+    local ref="$1"
+    git rev-parse --verify "$ref" >/dev/null 2>&1 && return 0
+    echo "[note] '$ref' not local — trying to fetch from origin"
+    if git fetch --quiet origin "$ref:$ref" 2>/dev/null; then
+        return 0
+    fi
+    # Fallback: fetch as origin/<ref> (read-only)
+    git fetch --quiet origin "$ref" 2>/dev/null \
+        && git rev-parse --verify "origin/$ref" >/dev/null 2>&1
+}
+ensure_ref "$REF_A" \
+    || { echo "ERROR: ref-A '$REF_A' not found locally or in origin"; exit 1; }
+ensure_ref "$REF_B" \
+    || { echo "ERROR: ref-B '$REF_B' not found locally or in origin"; exit 1; }
 
 ORIG_REF=$(git rev-parse --abbrev-ref HEAD)
 [ "$ORIG_REF" = "HEAD" ] && ORIG_REF=$(git rev-parse HEAD)
