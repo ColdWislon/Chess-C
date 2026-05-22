@@ -35,6 +35,25 @@ typedef struct {
     uint64_t tb_hits;       /* successful Syzygy WDL probes inside search */
     int      seldepth;      /* deepest ply reached (including qsearch) */
 
+    /* ── Tuning probes (PROF info-line, see emit_prof_line). Each counts how
+       often a specific pruning/reduction technique fired. Ratios reveal which
+       knob is poorly calibrated:
+         lmr_researched / lmr_done   — high → LMR too aggressive
+         nullmove_cuts / nmp_attempts — low  → NMP wasting work
+         rfp_prunes / nodes           — sanity check RFP isn't dead code
+         futility_prunes / nodes      — same for frontier futility
+         lmp_prunes / nodes           — same for late-move pruning
+         see_qprunes / qnodes         — SEE pruning effectiveness in qsearch
+         asp_widens / iterations      — aspiration windows too tight if > 1 */
+    uint64_t lmr_done;       /* moves searched at reduced depth */
+    uint64_t lmr_researched; /* subset that beat alpha and needed full-depth research */
+    uint64_t nmp_attempts;   /* null-move probes tried */
+    uint64_t rfp_prunes;     /* reverse-futility / static null fires */
+    uint64_t futility_prunes;/* frontier futility skips */
+    uint64_t lmp_prunes;     /* late-move pruning skips */
+    uint64_t see_qprunes;    /* qsearch SEE-based capture skips */
+    uint64_t asp_widens;     /* aspiration window widenings this search */
+
     long     deadline_ms;
     bool     stopped;
 
@@ -183,7 +202,7 @@ static int quiescence(const Position *pos, int alpha, int beta,
            positional gain can outweigh the SEE loss, and non-captures are
            never seen here outside the in-check branch. */
         if (!in_check && MOVE_CAPTURE(m) != PIECE_NONE && MOVE_PROMO(m) == PIECE_NONE) {
-            if (pos_see(pos, m) < 0) continue;
+            if (pos_see(pos, m) < 0) { ctx->see_qprunes++; continue; }
         }
 
         Position child;
@@ -305,14 +324,17 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
     /* Reverse-futility / static null move (depth ≤ 6, non-pv, not in check) */
     if (!is_pv && !in_check && depth <= 6) {
         int margin = 90 * depth;
-        if (static_eval - margin >= beta)
+        if (static_eval - margin >= beta) {
+            ctx->rfp_prunes++;
             return static_eval - margin;
+        }
     }
 
     /* Null-move pruning */
     if (can_null && !is_pv && !in_check && depth >= 3
         && static_eval >= beta
         && has_non_pawn_material(pos, pos->side)) {
+        ctx->nmp_attempts++;
         Position np = *pos;
         if (np.ep_sq >= 0) {
             np.hash ^= ZOBRIST_EP[FILE_OF(np.ep_sq)];
@@ -382,6 +404,7 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
            19 @d4). Only outside PV nodes / when not in check. */
         if (!is_pv && !in_check && quiet && depth <= 4
             && searched >= 3 + depth * depth) {
+            ctx->lmp_prunes++;
             continue;
         }
 
@@ -389,6 +412,7 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
            alpha at the leaf. Don't skip the very first move (we always need
            at least one searched to populate best_move). */
         if (futile_frontier && quiet && searched > 0) {
+            ctx->futility_prunes++;
             continue;
         }
 
@@ -426,13 +450,16 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
             }
 
             /* Zero-window search */
+            if (reduction > 0) ctx->lmr_done++;
             score = -alpha_beta(&child, depth - 1 - reduction, -alpha - 1, -alpha,
                                 ctx, tt, ply + 1, true, m);
 
             /* If reduced search beat alpha, redo at full depth, still zero window */
-            if (!ctx->stopped && score > alpha && reduction > 0)
+            if (!ctx->stopped && score > alpha && reduction > 0) {
+                ctx->lmr_researched++;
                 score = -alpha_beta(&child, depth - 1, -alpha - 1, -alpha,
                                     ctx, tt, ply + 1, true, m);
+            }
 
             /* If still inside the window, re-search full window for PV */
             if (!ctx->stopped && score > alpha && score < beta)
@@ -565,10 +592,12 @@ static IdResult run_id(SearchCtx *ctx, const Position *pos, int max_depth,
             score = alpha_beta(pos, depth, alpha, beta, ctx, tt, 0, true, MOVE_NONE);
             if (ctx->stopped) break;
             if (score <= alpha) {
+                ctx->asp_widens++;
                 alpha -= window;
                 window *= 2;
                 if (window > 1000) alpha = -SEARCH_INF;
             } else if (score >= beta) {
+                ctx->asp_widens++;
                 beta += window;
                 window *= 2;
                 if (window > 1000) beta = SEARCH_INF;
@@ -624,6 +653,22 @@ static IdResult run_id(SearchCtx *ctx, const Position *pos, int max_depth,
                     (unsigned long long)ctx->nullmove_cuts,
                     (unsigned long long)ctx->tb_hits,
                     pv_buf);
+            /* PROF: derived rates that surface tuning targets. Separate
+               `info string` line so dashboard parsers that already key off
+               the depth-line schema don't need to change. */
+            double ord    = ctx->cutoffs       ? (100.0 * ctx->cutoffs_first) / ctx->cutoffs       : 0.0;
+            double lmr_r  = ctx->lmr_done      ? (100.0 * ctx->lmr_researched) / ctx->lmr_done     : 0.0;
+            double nmp_y  = ctx->nmp_attempts  ? (100.0 * ctx->nullmove_cuts) / ctx->nmp_attempts  : 0.0;
+            double see_r  = ctx->qnodes        ? (100.0 * ctx->see_qprunes) / ctx->qnodes          : 0.0;
+            fprintf(stderr,
+                    "info string PROF ordering=%.1f%% lmr_research=%.1f%% "
+                    "nmp_yield=%.1f%% see_qprune=%.1f%% "
+                    "rfp=%llu fut=%llu lmp=%llu asp_widens=%llu\n",
+                    ord, lmr_r, nmp_y, see_r,
+                    (unsigned long long)ctx->rfp_prunes,
+                    (unsigned long long)ctx->futility_prunes,
+                    (unsigned long long)ctx->lmp_prunes,
+                    (unsigned long long)ctx->asp_widens);
             fflush(stderr);
         }
 
