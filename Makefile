@@ -109,10 +109,23 @@ build-info:
 CORPUS_USER  ?= rpiBot73
 CORPUS_GAMES ?= 2000
 
+# Modern Debian/Ubuntu (PEP 668) refuses `pip install` against system python.
+# Self-bootstrap a venv just for this script so `make corpus` works on a
+# clean WSL/Ubuntu install with nothing more than `apt install python3-venv`.
+CORPUS_VENV = .venv-corpus
+
+$(CORPUS_VENV)/bin/python:
+	@command -v python3 >/dev/null || (echo "python3 not found in PATH" && false)
+	@python3 -m venv $(CORPUS_VENV) 2>/dev/null \
+		|| (echo "venv creation failed — try: sudo apt install python3-venv python3-full" && false)
+	@$(CORPUS_VENV)/bin/pip install --quiet --upgrade pip
+	@$(CORPUS_VENV)/bin/pip install --quiet python-chess requests
+	@echo "corpus venv ready at $(CORPUS_VENV)"
+
 corpus: quiet-labeled.epd
-quiet-labeled.epd:
+quiet-labeled.epd: $(CORPUS_VENV)/bin/python
 	@echo "generating corpus from Lichess games of $(CORPUS_USER) (max $(CORPUS_GAMES))…"
-	@python3 tools/gen-corpus.py --user "$(CORPUS_USER)" --max $(CORPUS_GAMES) --out quiet-labeled.epd
+	@$(CORPUS_VENV)/bin/python tools/gen-corpus.py --user "$(CORPUS_USER)" --max $(CORPUS_GAMES) --out quiet-labeled.epd
 	@echo "quiet-labeled.epd: $$(wc -l < quiet-labeled.epd) positions, $$(du -h quiet-labeled.epd | cut -f1)"
 
 .PHONY: release debug test clean bench bench-timed bench-baseline bench-compare bench-compare-timed book build-info corpus FORCE

@@ -16,6 +16,7 @@ book.bin.bak
 # Texel tuning corpus + per-pass snapshot (regenerable via `make corpus`)
 quiet-labeled.epd
 texel-snapshot.txt
+.venv-corpus/
 
 # Python
 __pycache__/
