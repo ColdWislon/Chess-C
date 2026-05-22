@@ -4,6 +4,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "search.h"
 #include "eval.h"
+#include "syzygy.h"
 #include <time.h>
 #include <string.h>
 #include <stdio.h>
@@ -31,6 +32,7 @@ typedef struct {
     uint64_t cutoffs;       /* total beta cutoffs */
     uint64_t cutoffs_first; /* cutoffs that happened on first move (ordering quality) */
     uint64_t nullmove_cuts; /* successful null-move prunes */
+    uint64_t tb_hits;       /* successful Syzygy WDL probes inside search */
     int      seldepth;      /* deepest ply reached (including qsearch) */
 
     long     deadline_ms;
@@ -279,6 +281,22 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
     if (depth <= 0)
         return quiescence(pos, alpha, beta, ctx, ply);
 
+    /* Syzygy WDL probe. Skips the rest of the subtree when we have a
+       definitive result. Constraints:
+       - non-root (ply > 0): at the root we use DTZ at the entry point
+       - depth >= configured probe-depth floor (skip qsearch-adjacent nodes)
+       - syzygy_probe_wdl handles piece-count / castling / halfmove cutoffs
+       Score is mapped to ±SEARCH_MATE/2 so TB wins/losses dominate eval but
+       stay BELOW real mate scores (mate-distance pruning continues to work). */
+    if (ply > 0 && depth >= syzygy_get_probe_depth()) {
+        int tb_score;
+        if (syzygy_probe_wdl(pos, &tb_score)) {
+            ctx->tb_hits++;
+            /* TB results are perfect, so behave like a fail-high/fail-low. */
+            return tb_score;
+        }
+    }
+
     /* Reuse the static eval cached in TT when we have one — saves a full
        evaluate() pass on revisits. The TT XOR-key check upstream guarantees
        the entry matches this position and isn't torn. */
@@ -520,7 +538,7 @@ static IdResult run_id(SearchCtx *ctx, const Position *pos, int max_depth,
                     "info depth 1 score cp %d nodes 1 nps 1 time 1 "
                     "seldepth 1 hashfull %d hashmb %d "
                     "tthits 0 ttprobes 0 qnodes 0 "
-                    "cutoffs 0 cutoffs1 0 nullcuts 0\n",
+                    "cutoffs 0 cutoffs1 0 nullcuts 0 tbhits 0\n",
                     r.best_score, tt_hashfull(tt), tt->mb);
             fflush(stderr);
         }
@@ -594,7 +612,8 @@ static IdResult run_id(SearchCtx *ctx, const Position *pos, int max_depth,
                     "info depth %d score cp %d nodes %llu nps %ld time %ld "
                     "seldepth %d hashfull %d hashmb %d "
                     "tthits %llu ttprobes %llu qnodes %llu "
-                    "cutoffs %llu cutoffs1 %llu nullcuts %llu pv %s\n",
+                    "cutoffs %llu cutoffs1 %llu nullcuts %llu "
+                    "tbhits %llu pv %s\n",
                     depth, score, (unsigned long long)ctx->nodes, nps, elapsed,
                     ctx->seldepth, hashfull, tt->mb,
                     (unsigned long long)ctx->tt_hits,
@@ -603,6 +622,7 @@ static IdResult run_id(SearchCtx *ctx, const Position *pos, int max_depth,
                     (unsigned long long)ctx->cutoffs,
                     (unsigned long long)ctx->cutoffs_first,
                     (unsigned long long)ctx->nullmove_cuts,
+                    (unsigned long long)ctx->tb_hits,
                     pv_buf);
             fflush(stderr);
         }
@@ -643,6 +663,7 @@ typedef struct {
     /* outputs */
     Move best_move;
     int  best_score;
+    int  depth_reached;
     bool any_completed;
 } Worker;
 
@@ -671,6 +692,7 @@ static void *worker_run(void *arg) {
 
     w->best_move     = r.best_move;
     w->best_score    = r.best_score;
+    w->depth_reached = r.depth_reached;
     w->any_completed = r.any_completed;
     return NULL;
 }
@@ -755,9 +777,44 @@ Move find_best_move_smp_hist(const Position *pos, int time_ms, int max_depth,
                              TT *tt, int threads,
                              const uint64_t *history, int history_len,
                              int *out_score, bool *out_have_score) {
+    return find_best_move_smp_hist_depth(pos, time_ms, max_depth, tt, threads,
+                                         history, history_len,
+                                         out_score, out_have_score, NULL);
+}
+
+Move find_best_move_smp_hist_depth(const Position *pos, int time_ms, int max_depth,
+                                   TT *tt, int threads,
+                                   const uint64_t *history, int history_len,
+                                   int *out_score, bool *out_have_score,
+                                   int *out_depth) {
     if (threads < 1) threads = 1;
     if (max_depth <= 0 || max_depth > MAX_PLY) max_depth = MAX_PLY;
     if (out_have_score) *out_have_score = false;
+    if (out_depth)      *out_depth      = 0;
+
+    /* Syzygy root probe — DTZ-aware best move, returned before any worker is
+       spawned (tb_probe_root is documented not thread-safe). On a hit we emit
+       a synthetic info line so the dashboard sees the tbhit + the chosen score,
+       and skip the search entirely. We still respect the user's Hash setup. */
+    {
+        int tb_score = 0;
+        Move tb_move = syzygy_probe_root(pos, &tb_score);
+        if (tb_move != MOVE_NONE) {
+            char mb[6]; move_to_uci(tb_move, mb);
+            fprintf(stderr,
+                    "info depth 1 score cp %d nodes 0 nps 0 time 0 "
+                    "seldepth 0 hashfull %d hashmb %d "
+                    "tthits 0 ttprobes 0 qnodes 0 "
+                    "cutoffs 0 cutoffs1 0 nullcuts 0 tbhits 1 pv %s\n",
+                    tb_score, tt_hashfull(tt), tt->mb, mb);
+            fflush(stderr);
+            if (out_score)      *out_score      = tb_score;
+            if (out_have_score) *out_have_score = true;
+            (void)time_ms; (void)max_depth; (void)threads;
+            (void)history; (void)history_len;
+            return tb_move;
+        }
+    }
 
     atomic_bool global_stop;
     atomic_init(&global_stop, false);
@@ -795,6 +852,7 @@ Move find_best_move_smp_hist(const Position *pos, int time_ms, int max_depth,
     if (workers[0].any_completed) {
         if (out_score)      *out_score      = workers[0].best_score;
         if (out_have_score) *out_have_score = true;
+        if (out_depth)      *out_depth      = workers[0].depth_reached;
     }
 
     free(workers);

@@ -1,9 +1,19 @@
 CC      = gcc
-CFLAGS  = -std=c11 -Wall -Wextra -Isrc -pthread
+CFLAGS  = -std=c11 -Wall -Wextra -Isrc -Iexternal -pthread
 LDFLAGS = -pthread -lm
 
 SRC = src/board.c src/tt.c src/eval.c src/search.c \
-      src/opening.c src/perft.c src/chat.c src/bench.c src/uci.c src/main.c
+      src/opening.c src/perft.c src/chat.c src/bench.c \
+      src/syzygy.c src/texel.c src/uci.c src/main.c
+
+# Fathom Syzygy probe (external/tbprobe.c) — single TU, includes tbchess.c.
+# Compiled separately with -w because Fathom's source emits a few -Wunused
+# warnings on the Pi 4 toolchain that aren't ours to fix.
+FATHOM_SRC = external/tbprobe.c
+FATHOM_OBJ = external/tbprobe.o
+
+$(FATHOM_OBJ): $(FATHOM_SRC) external/tbprobe.h external/tbconfig.h external/tbchess.c
+	$(CC) $(CFLAGS) -O3 -w -DNDEBUG -c $(FATHOM_SRC) -o $@
 
 # Build-time identity: short git SHA + "-dirty" if the working tree is dirty.
 # Regenerated on every build (src/build_id.h is gitignored). Surfaces to the
@@ -20,11 +30,11 @@ src/build_id.h: FORCE
 
 FORCE:
 
-release: src/build_id.h $(SRC)
-	$(CC) $(CFLAGS) -O3 -march=native $(SRC) -o chess-engine-c $(LDFLAGS)
+release: src/build_id.h $(SRC) $(FATHOM_OBJ)
+	$(CC) $(CFLAGS) -O3 -march=native $(SRC) $(FATHOM_OBJ) -o chess-engine-c $(LDFLAGS)
 
-debug: src/build_id.h $(SRC)
-	$(CC) $(CFLAGS) -O0 -g $(SRC) -o chess-engine-c-dbg $(LDFLAGS)
+debug: src/build_id.h $(SRC) $(FATHOM_OBJ)
+	$(CC) $(CFLAGS) -O0 -g $(SRC) $(FATHOM_OBJ) -o chess-engine-c-dbg $(LDFLAGS)
 
 # src/poly_keys.h is checked in (the canonical 781 Polyglot constants).
 # Regenerate with: python3 tools/gen_poly_keys.py > src/poly_keys.h
@@ -67,7 +77,7 @@ bench-compare-timed: release
 	@bash tools/bench_compare_timed.sh $(BENCH_MS)
 
 clean:
-	rm -f chess-engine-c chess-engine-c-dbg chess-engine-c.baseline src/build_id.h
+	rm -f chess-engine-c chess-engine-c-dbg chess-engine-c.baseline src/build_id.h $(FATHOM_OBJ)
 
 # ── Opening book ──────────────────────────────────────────────────
 # book.bin is gitignored (re-downloadable, ~5 MB). `make book` fetches it
@@ -89,4 +99,17 @@ book.bin:
 build-info:
 	@python3 tools/gen_build_info.py
 
-.PHONY: release debug test clean bench bench-timed bench-baseline bench-compare bench-compare-timed book build-info FORCE
+# ── Texel-tuning corpus ───────────────────────────────────────────
+# Ethereal's quiet-labeled.epd: ~750k positions, each labeled with the game
+# outcome, all already quiesced. Standard texel-tuning corpus. ~50 MB raw.
+# `texel-snapshot.txt` is produced by the tuner each pass (gitignored).
+CORPUS_URL = https://raw.githubusercontent.com/AndyGrant/Ethereal/master/resources/quiet-labeled.epd
+
+corpus: quiet-labeled.epd
+quiet-labeled.epd:
+	@echo "downloading quiet-labeled corpus from $(CORPUS_URL)…"
+	@wget --quiet --show-progress -O quiet-labeled.epd.tmp "$(CORPUS_URL)"
+	@mv quiet-labeled.epd.tmp quiet-labeled.epd
+	@echo "quiet-labeled.epd: $$(wc -l < quiet-labeled.epd) positions, $$(du -h quiet-labeled.epd | cut -f1)"
+
+.PHONY: release debug test clean bench bench-timed bench-baseline bench-compare bench-compare-timed book build-info corpus FORCE

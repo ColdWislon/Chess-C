@@ -4,15 +4,21 @@
 #include "perft.h"
 #include "chat.h"
 #include "bench.h"
+#include "syzygy.h"
+#include "texel.h"
 #include "build_id.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
 
-static int parse_time(const char *line, const Position *pos, int *depth_out) {
+static int parse_time(const char *line, const Position *pos,
+                      int move_overhead, int min_thinking, int *depth_out) {
     /* Parse go command time fields; returns time in ms for our side.
-       *depth_out is set if "depth N" present, else 0. */
+       *depth_out is set if "depth N" present, else 0.
+       move_overhead: ms subtracted from the budget as a comms/lag safety margin.
+       min_thinking:  floor on returned time, capped by what's actually safe so
+                      honoring it can never cause a time forfeit. */
     long wtime = -1, btime = -1, winc = 0, binc = 0;
     long movetime = -1, movestogo = -1, depth = 0;
     const char *p = line;
@@ -30,20 +36,37 @@ static int parse_time(const char *line, const Position *pos, int *depth_out) {
     }
     if (depth_out) *depth_out = (int)depth;
     if (depth > 0) return 60000;  /* generous cap, depth limit handles termination */
+
+    long alloc;
+    long max_safe;   /* ceiling that honoring min_thinking must not exceed */
+
     if (movetime > 0) {
-        long t = movetime - 50;
-        return (int)(t > 1 ? t : 1);
+        /* GUI gave us an explicit per-move budget. Spend (movetime - overhead)
+           and treat that same value as the ceiling — exceeding it risks forfeit. */
+        max_safe = movetime - move_overhead;
+        if (max_safe < 1) max_safe = 1;
+        alloc = max_safe;
+    } else {
+        long our_time = (pos->side == WHITE) ? wtime : btime;
+        long inc      = (pos->side == WHITE) ? winc  : binc;
+        if (our_time <= 0) our_time = 10000;
+        long moves_left = (movestogo > 0) ? movestogo : 30;
+        alloc = our_time / moves_left + (inc > 0 ? inc * 3 / 4 : 0);
+        alloc = alloc * 9 / 10;
+        /* Never spend more than half our remaining time on a single move —
+           guards against blowing the clock when inc*3/4 swamps our_time at
+           low time. min_thinking_time must respect this same ceiling. */
+        max_safe = our_time / 2;
+        if (max_safe < 1) max_safe = 1;
+        if (alloc > max_safe) alloc = max_safe;
+        alloc -= move_overhead;
     }
-    long our_time = (pos->side == WHITE) ? wtime : btime;
-    long inc      = (pos->side == WHITE) ? winc  : binc;
-    if (our_time <= 0) our_time = 10000;
-    long moves_left = (movestogo > 0) ? movestogo : 30;
-    long alloc = our_time / moves_left + (inc > 0 ? inc * 3 / 4 : 0);
-    alloc = alloc * 9 / 10;
-    /* Never spend more than half our remaining time on a single move — guards
-       against blowing the clock when inc*3/4 swamps our_time at low time. */
-    if (alloc > our_time / 2) alloc = our_time / 2;
-    if (alloc < 100) alloc = 100;
+
+    /* Floor at Minimum Thinking Time, but never above max_safe — a bullet game
+       with min_thinking=5000 must not let that option cost us the game. */
+    if (alloc < min_thinking) alloc = min_thinking;
+    if (alloc > max_safe)     alloc = max_safe;
+    if (alloc < 1)            alloc = 1;
     return (int)alloc;
 }
 
@@ -54,10 +77,19 @@ void uci_run(OpeningBook *book) {
     Position pos;
     pos_startpos(&pos);
 
-    bool is_first_move = true;
-    int  last_score    = 0;
-    bool have_last     = false;
-    int  threads       = 1;   /* honored if Threads UCI option is set */
+    bool is_first_move    = true;
+    int  last_score       = 0;
+    bool have_last        = false;
+    int  threads          = 1;   /* honored if Threads UCI option is set */
+    int  move_overhead    = 30;  /* ms; matches declared default */
+    int  min_thinking_time = 20; /* ms; matches declared default */
+
+    /* Chat-supporting state. move_number is 1 on the first move we play in a
+       game and bumps after every bestmove. prev_was_book tracks the previous
+       move's source so we can fire "out of book" exactly once at the
+       transition. Both reset on ucinewgame. */
+    int  move_number   = 1;
+    bool prev_was_book = false;
 
     /* Game-history hashes: positions we passed through before the current
        root, in chronological order. Seeded into the search's rep_stack so
@@ -82,6 +114,10 @@ void uci_run(OpeningBook *book) {
             printf("option name Threads type spin default 1 min 1 max 512\n");
             printf("option name Move Overhead type spin default 30 min 0 max 5000\n");
             printf("option name Minimum Thinking Time type spin default 20 min 0 max 5000\n");
+            printf("option name SyzygyPath type string default /home/bertrand/syzygy/\n");
+            printf("option name SyzygyProbeLimit type spin default 7 min 0 max 7\n");
+            printf("option name Syzygy50MoveRule type check default true\n");
+            printf("option name SyzygyProbeDepth type spin default 1 min 0 max 100\n");
             printf("uciok\n");
             fflush(stdout);
 
@@ -107,6 +143,42 @@ void uci_run(OpeningBook *book) {
                     if (t < 1)   t = 1;
                     if (t > 512) t = 512;
                     threads = t;
+                } else if (strncmp(name, "Move Overhead", 13) == 0) {
+                    int v = atoi(val);
+                    if (v < 0)    v = 0;
+                    if (v > 5000) v = 5000;
+                    move_overhead = v;
+                } else if (strncmp(name, "Minimum Thinking Time", 21) == 0) {
+                    int v = atoi(val);
+                    if (v < 0)    v = 0;
+                    if (v > 5000) v = 5000;
+                    min_thinking_time = v;
+                } else if (strncmp(name, "SyzygyPath", 10) == 0) {
+                    /* Strip leading spaces and trailing whitespace from val. */
+                    while (*val == ' ') val++;
+                    char path[1024];
+                    size_t n = strlen(val);
+                    while (n > 0 && (val[n-1] == ' ' || val[n-1] == '\t' ||
+                                     val[n-1] == '\r' || val[n-1] == '\n')) n--;
+                    if (n >= sizeof(path)) n = sizeof(path) - 1;
+                    memcpy(path, val, n); path[n] = '\0';
+                    bool ok = syzygy_init(path);
+                    fprintf(stderr,
+                            "info string Syzygy %s (largest %d-piece) path=%s\n",
+                            ok ? "loaded" : "FAILED to load",
+                            syzygy_largest(), path);
+                    fflush(stderr);
+                } else if (strncmp(name, "SyzygyProbeLimit", 16) == 0) {
+                    int v = atoi(val);
+                    if (v < 0) v = 0;
+                    if (v > 7) v = 7;
+                    syzygy_set_probe_limit(v);
+                } else if (strncmp(name, "Syzygy50MoveRule", 16) == 0) {
+                    /* UCI check option: "true" / "false" string. */
+                    bool use = (strncmp(val, "true", 4) == 0);
+                    syzygy_set_50_move_rule(use);
+                } else if (strncmp(name, "SyzygyProbeDepth", 16) == 0) {
+                    syzygy_set_probe_depth(atoi(val));
                 }
             }
 
@@ -116,6 +188,8 @@ void uci_run(OpeningBook *book) {
             is_first_move    = true;
             have_last        = false;
             game_history_len = 0;
+            move_number      = 1;
+            prev_was_book    = false;
             /* Re-emit build id at game start so the dashboard's journal
                scan (which only looks back a few hundred lines) finds it
                even when the engine has been running for a long time. */
@@ -171,34 +245,48 @@ void uci_run(OpeningBook *book) {
 
         } else if (strncmp(line, "go", 2) == 0) {
             int depth = 0;
-            int time_ms = parse_time(line + 2, &pos, &depth);
+            int time_ms = parse_time(line + 2, &pos, move_overhead,
+                                     min_thinking_time, &depth);
 
             /* Bump TT generation so entries written before this search are
                considered "stale" and can be replaced even by shallow new ones.
                This is the standard TT-aging trick. */
             tt_new_generation(&tt);
 
-            int  score      = 0;
-            bool have_score = false;
+            int  score          = 0;
+            bool have_score     = false;
+            int  depth_reached  = 0;
 
             Move best = book_probe(book, &pos);
-            if (best == MOVE_NONE)
-                best = find_best_move_smp_hist(&pos, time_ms,
-                                               depth > 0 ? depth : 64,
-                                               &tt, threads,
-                                               game_history, game_history_len,
-                                               &score, &have_score);
+            bool was_book = (best != MOVE_NONE);
+            if (!was_book)
+                best = find_best_move_smp_hist_depth(
+                            &pos, time_ms,
+                            depth > 0 ? depth : 64,
+                            &tt, threads,
+                            game_history, game_history_len,
+                            &score, &have_score, &depth_reached);
 
             if (best != MOVE_NONE) {
                 ChatContext cc = {
-                    .our_move      = best,
-                    .score         = score,
-                    .have_score    = have_score,
-                    .last_score    = last_score,
-                    .have_last     = have_last,
-                    .is_first_move = is_first_move,
+                    .our_move        = best,
+                    .score           = score,
+                    .have_score      = have_score,
+                    .last_score      = last_score,
+                    .have_last       = have_last,
+                    .is_first_move   = is_first_move,
+                    .move_number     = move_number,
+                    .was_book_move   = was_book,
+                    .just_left_book  = prev_was_book && !was_book,
+                    .was_root_tb_hit = syzygy_last_root_was_hit(),
+                    .tb_wdl_band     = syzygy_last_root_wdl_band(),
+                    .depth_reached   = depth_reached,
+                    .threads         = threads,
+                    .hash_mb         = tt.mb,
+                    .tb_largest      = syzygy_largest(),
+                    .book_loaded     = (book != NULL),
                 };
-                char chat_buf[160];
+                char chat_buf[200];
                 if (chat_build(&cc, chat_buf, sizeof(chat_buf))) {
                     printf("info string CHAT %s\n", chat_buf);
                 }
@@ -207,6 +295,8 @@ void uci_run(OpeningBook *book) {
                     last_score = score;
                     have_last  = true;
                 }
+                prev_was_book = was_book;
+                move_number++;
 
                 char buf[6];
                 move_to_uci(best, buf);
@@ -235,6 +325,16 @@ void uci_run(OpeningBook *book) {
                 if (v > 0 && v <= 30) d = v;
             }
             run_bench(d, &tt);
+
+        } else if (strncmp(line, "texel", 5) == 0) {
+            /* `texel <path-to-epd>` — runs Texel tuning on the given corpus.
+               Synchronous, can take hours on the Pi for a large corpus.
+               Best run on a faster host (the tuned values get pasted back
+               into src/eval.c afterwards). */
+            const char *q = line + 5;
+            while (*q == ' ') q++;
+            if (*q) texel_run(q);
+            else    fprintf(stderr, "usage: texel <epd-path>\n");
 
         } else if (strncmp(line, "perft", 5) == 0) {
             int depth = atoi(line + 6);

@@ -13,6 +13,10 @@ last-bench.json
 book.bin
 book.bin.bak
 
+# Texel tuning corpus + per-pass snapshot (regenerable via `make corpus`)
+quiet-labeled.epd
+texel-snapshot.txt
+
 # Python
 __pycache__/
 *.pyc

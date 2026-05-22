@@ -98,16 +98,16 @@ If it prints `PLAYING <id>`, wait. Polite poll interval: 30-60 s. The game URL i
 
 | Layer | Detail |
 |---|---|
-| Move generation | Bitboards, magic-free sliders (handwritten in `board.c`) |
-| Search | Iterative deepening, PVS, LMR, null-move pruning, killers, history, aspiration windows, check extensions |
-| Quiescence | Captures only, MVV-LVA ordering, queen-promotion bonus |
-| Transposition table | 64 MB source default; **384 MB in production** via `Hash` in `config-c.yml`. Zobrist-keyed, replace-by-depth. |
-| Repetition | 2-fold within search treated as draw; halfmove clock bounded |
+| Move generation | Bitboards, magic-bitboard sliders (`board.c`, magics generated at startup) |
+| Search | Iterative deepening, PVS, LMR, null-move pruning, killers, history, counter-moves, aspiration windows, check extensions |
+| Quiescence | Captures only, MVV-LVA ordering, queen-promotion bonus, SEE pruning |
+| Transposition table | 64 MB source default; **384 MB in production** via `Hash` in `config-c.yml`. Zobrist-keyed, replace-by-depth, XOR-key for lock-free SMP. |
+| Repetition | 2-fold within search treated as draw; halfmove clock bounded; rep_stack seeded from game history |
 | Evaluation | Material + piece-square tables + mobility + king safety + pawn structure |
 | Opening book | Polyglot `.bin` file — `/home/bertrand/chess-c/book.bin` (path hardcoded in `main.c`, falls back to `./book.bin`) |
-| Tablebases | **Not implemented** — see "Known gaps" below |
+| Tablebases | **Syzygy 3-4-5-piece** via Fathom (`external/tbprobe.c`, vendored CC0). Files at `/home/bertrand/syzygy/` (~939 MB). Root probe is DTZ-aware; in-search probe is WDL-only. |
 | Time management | `total_time / moves_left * 0.9`; soft budget predicts next iteration as 2× the last and aborts before starting it if that wouldn't fit in the remaining budget (fixed 2026-05-17 — old formula aborted at 50% of total budget regardless of iteration time) |
-| UCI options declared | Hash (1-4096 MB), Threads (Lazy SMP), Move Overhead, Minimum Thinking Time — only `Hash` and `Threads` are actually used; the latter two are declared but ignored |
+| UCI options | Hash (1-4096 MB), Threads (Lazy SMP), Move Overhead, Minimum Thinking Time, SyzygyPath, SyzygyProbeLimit, Syzygy50MoveRule, SyzygyProbeDepth — all honored. |
 
 ## Engine chat (lichess relay)
 
@@ -119,13 +119,16 @@ info string CHAT <message>
 
 lichess-bot's `engine_wrapper.py` reads `result.info["string"]`, strips the `CHAT ` prefix, and posts via the Lichess chat API after the move is made. Priority chain in `src/chat.c` (only the highest-priority message that matches gets emitted per move):
 
-1. First move of new game → `engine ready, hash 64M, PVS + null-move + LMR`
+1. First move of new game → `engine ready, build <sha>, PVS + null-move + LMR, lazy SMP <N>T, <H>MB hash, syzygy <P>-piece, polyglot book` — built dynamically from what's actually compiled in and loaded.
 2. Mate detected / facing mate → `mate in N` / `facing mate in N`
 3. Promotion → `promote to <piece>, eval ±X.XX`
 4. Capture of queen/rook → `captures <piece>, eval ±X.XX`
-5. Eval swing ≥ 150 cp vs previous turn → `eval ±X.XX -> ±Y.YY`
+5. Syzygy root probe hit → `syzygy tablebase: winning|drawn|losing`
+6. First non-book move after a book sequence → `out of book — searched to depth N`
+7. Eval swing ≥ 150 cp vs previous turn → `eval ±X.XX -> ±Y.YY`
+8. **Feature rotation** (low-priority filler — fires only when 2-7 didn't and we're still on the first few moves): cycles through 5 short feature mentions (search techniques → SMP/hash → Syzygy → eval/book → search depth) on moves 2..6, then goes silent for the rest of the game. The point is to surface what the engine does in the chat early on without spamming the user.
 
-State (`is_first_move`, `last_score`, `have_last`) lives in `uci.c::uci_run` and resets on `ucinewgame`. python-chess only keeps the **last** `info string` of a search in `info["string"]`, so the engine emits exactly one CHAT line per move (right before `bestmove`).
+State (`is_first_move`, `last_score`, `have_last`, `move_number`, `prev_was_book`) lives in `uci.c::uci_run` and resets on `ucinewgame`. python-chess only keeps the **last** `info string` of a search in `info["string"]`, so the engine emits exactly one CHAT line per move (right before `bestmove`).
 
 ### Chat smoke test (no Lichess needed)
 
@@ -144,10 +147,33 @@ Expect: a `CHAT engine ready ...` greeting on the first move, then a `CHAT captu
 - `info depth … score cp …` goes to **stderr** (parsed from journalctl by the dashboard). Only UCI responses + `info string CHAT …` go to stdout.
 - `chess-engine-c.service` doesn't exist as a separate unit — the engine is launched as a child process by `lichess-bot-c.service`.
 
+## Syzygy tablebases
+
+Implemented via vendored Fathom (`external/tbprobe.c`, CC0). Loaded at startup from `/home/bertrand/syzygy/` (default — override via `SyzygyPath` UCI option). 3-4-5 piece WDL+DTZ on disk (~939 MB, 290 files from `tablebase.lichess.ovh`).
+
+- **Root probe** (`syzygy_probe_root`) is called once at the top of `find_best_move_smp_hist` before any worker is spawned (Fathom's DTZ probe is documented not thread-safe). On a hit, the engine returns immediately at depth 1 with `tbhits 1` in the info line — saves the entire move budget.
+- **In-search WDL probe** is in `alpha_beta` after the TT lookup, gated by `ply > 0`, `depth >= SyzygyProbeDepth` (default 1), `halfmove == 0`, no castling rights. Returns ±SEARCH_MATE/2 for wins/losses — high enough to dominate eval, low enough that mate-distance pruning keeps working.
+- **UCI options**: `SyzygyPath` (re-initializes Fathom on change), `SyzygyProbeLimit` (0–7), `Syzygy50MoveRule` (true folds cursed-win/blessed-loss into draw), `SyzygyProbeDepth` (skip probe at low remaining depth).
+- Fathom is built with `-w -DNDEBUG` so a malformed FEN can't trip an internal assertion. Real lichess games only feed legal positions.
+
+## Texel-style eval tuning
+
+`src/texel.{c,h}` implements coordinate-descent over the material + PST values (778 parameters), fitted against a labeled EPD corpus. UCI command:
+
+```bash
+make corpus               # ~50 MB, 750k positions from Ethereal's quiet-labeled.epd
+printf 'texel quiet-labeled.epd\nquit\n' | ./chess-engine-c
+# → snapshots ./texel-snapshot.txt after every pass; paste the arrays back into src/eval.c
+```
+
+The tuner refits the sigmoid `K` once at start (compensates for our eval's cp scale being different from Stockfish's), then runs passes of ±step probes per parameter; step halves when no parameter improves, exits when step reaches 0. Snapshot file is written every pass so SIGINT doesn't lose work.
+
+**On a Pi 4, the full corpus is slow** — coordinate descent on 778 params × 750k positions is ~30 min/pass. Run on a faster host (eval is portable), paste the snapshot, rebuild, gauntlet-test the new binary, commit if it improved.
+
 ## Known gaps
 
-- **Syzygy tablebases**: not yet implemented (the previous Rust engine used `shakmaty-syzygy`). Easiest path forward is to link Fathom (CC0 C library by Jon Dart) and call it from `search.c` at the root and inside qsearch for shallow endgames. No tablebase files are currently on disk, so practical regression is zero.
-- `setoption` honors `Hash` (1-4096 MB) and `Threads` (Lazy SMP). `Move Overhead` and `Minimum Thinking Time` are declared but unused.
+- No neural-network eval (NNUE). Classical eval ceiling is ~2200–2400 Elo with perfect tuning; NNUE adds ~400+ Elo but requires a training pipeline.
+- 6-7 piece tablebases not on disk (5-piece is ~939 MB; 6-piece would be ~150 GB).
 
 ## Lichess matchmaking — known issues
 

@@ -38,6 +38,15 @@ Move find_best_move_smp_hist(const Position *pos, int time_ms, int max_depth,
                              const uint64_t *history, int history_len,
                              int *out_score, bool *out_have_score);
 
+/* Same as above, plus an out-pointer for the highest fully-completed search
+   depth (0 for book/TB shortcuts). Used by the chat layer to mention search
+   depth on quiet moves. */
+Move find_best_move_smp_hist_depth(const Position *pos, int time_ms, int max_depth,
+                                   TT *tt, int threads,
+                                   const uint64_t *history, int history_len,
+                                   int *out_score, bool *out_have_score,
+                                   int *out_depth);
+
 /* Deterministic fixed-depth search used by the bench infrastructure.
    Single-threaded, effectively no time limit — runs full iterative deepening
    to exactly `depth`. Returns the chosen move, the last-iteration score, and
