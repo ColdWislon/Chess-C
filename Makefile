@@ -100,16 +100,19 @@ build-info:
 	@python3 tools/gen_build_info.py
 
 # ── Texel-tuning corpus ───────────────────────────────────────────
-# Ethereal's quiet-labeled.epd: ~750k positions, each labeled with the game
-# outcome, all already quiesced. Standard texel-tuning corpus. ~50 MB raw.
+# The classic Ethereal quiet-labeled.epd is no longer hosted anywhere
+# public. We generate our own corpus from rpiBot73's actual Lichess game
+# history via tools/gen-corpus.py — arguably better since we end up tuning
+# against positions the engine really faces.
+# Tweak the user / game count by passing CORPUS_USER / CORPUS_GAMES.
 # `texel-snapshot.txt` is produced by the tuner each pass (gitignored).
-CORPUS_URL = https://raw.githubusercontent.com/AndyGrant/Ethereal/master/resources/quiet-labeled.epd
+CORPUS_USER  ?= rpiBot73
+CORPUS_GAMES ?= 2000
 
 corpus: quiet-labeled.epd
 quiet-labeled.epd:
-	@echo "downloading quiet-labeled corpus from $(CORPUS_URL)…"
-	@wget --quiet --show-progress -O quiet-labeled.epd.tmp "$(CORPUS_URL)"
-	@mv quiet-labeled.epd.tmp quiet-labeled.epd
+	@echo "generating corpus from Lichess games of $(CORPUS_USER) (max $(CORPUS_GAMES))…"
+	@python3 tools/gen-corpus.py --user "$(CORPUS_USER)" --max $(CORPUS_GAMES) --out quiet-labeled.epd
 	@echo "quiet-labeled.epd: $$(wc -l < quiet-labeled.epd) positions, $$(du -h quiet-labeled.epd | cut -f1)"
 
 .PHONY: release debug test clean bench bench-timed bench-baseline bench-compare bench-compare-timed book build-info corpus FORCE
