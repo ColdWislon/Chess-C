@@ -32,6 +32,7 @@ FORCE:
 
 release: src/build_id.h $(SRC) $(FATHOM_OBJ)
 	$(CC) $(CFLAGS) -O3 -march=native $(SRC) $(FATHOM_OBJ) -o chess-engine-c $(LDFLAGS)
+	@python3 tools/gen_build_info.py >/dev/null 2>&1 || true
 
 debug: src/build_id.h $(SRC) $(FATHOM_OBJ)
 	$(CC) $(CFLAGS) -O0 -g $(SRC) $(FATHOM_OBJ) -o chess-engine-c-dbg $(LDFLAGS)
