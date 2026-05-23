@@ -127,7 +127,7 @@ NAME_A=$(echo "$REF_A" | tr '/ ' '__')
 NAME_B=$(echo "$REF_B" | tr '/ ' '__')
 
 echo
-echo "[$MATCH_BIN] $REF_A vs $REF_B starting…"
+echo "[$MATCH_BIN] $REF_A vs $REF_B starting…  (progress + ETA via gauntlet-progress.py)"
 echo
 "$MATCH_BIN" \
     -engine cmd="$REPO/chess-engine-c.A" name="$NAME_A" proto=uci \
@@ -139,7 +139,8 @@ echo
     -repeat \
     -recover \
     "${PGNOUT_ARGS[@]}" \
-    -ratinginterval 10
+    -ratinginterval 10 \
+    | python3 "$REPO/tools/gauntlet-progress.py" "$GAMES"
 
 echo
 echo "═══════════════════════════════════════════════════════════"

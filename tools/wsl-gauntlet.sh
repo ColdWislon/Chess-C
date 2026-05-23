@@ -127,7 +127,8 @@ esac
     -repeat \
     -recover \
     "${PGNOUT_ARGS[@]}" \
-    -ratinginterval 10
+    -ratinginterval 10 \
+    | python3 "$REPO/tools/gauntlet-progress.py" "$GAMES"
 
 echo
 echo "═══════════════════════════════════════════════════════════"
