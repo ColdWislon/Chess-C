@@ -203,6 +203,25 @@ printf 'position fen r1bq1rk1/pp2bppp/2n1pn2/3p4/3P1B2/2NBP3/PP3PPP/R2QK1NR w KQ
 
 The PROF line is a separate `info string` so dashboard parsers keyed off the depth-line schema don't need to change.
 
+## Autonomous improvement loop (`/improve`)
+
+A custom Claude Code slash command that runs the full propose → review → gauntlet → push pipeline end-to-end. Project-scoped agents live at `.claude/agents/`:
+
+| Agent | Role | Tools | Output |
+|---|---|---|---|
+| `engine-improver` | Read PROF + source, propose ONE small diff (≤30 LOC, src/ only) | Bash, Read, Grep | unified diff + rationale |
+| `engine-reviewer` | Verify scope, run perft, vote APPROVE/REJECT | Bash, Read, Grep | verdict |
+| `engine-gauntler` | Build baseline + variant, idle-check, 40-game Pi gauntlet, restart service | Bash, Read | Elo / LOS / W-D-L |
+| `engine-deployer` | If Elo ≥ +20 / LOS ≥ 75%: commit + push to `auto-improve/<topic>` branch (NEVER main) | Bash, Read | branch name + next-steps |
+
+Trigger with `/improve` in a Claude Code session. The orchestrator:
+- Refuses if working tree dirty or not on main
+- Reverts src/ on any stage failure
+- Restarts `lichess-bot-c` if the gauntlet stopped it
+- Pushes to feature branch only — production never touched
+
+The user is expected to take it from there: WSL 200+ game confirmation via `tools/wsl-ab-gauntlet.sh main <branch>`, then `git merge --ff-only` + `./tools/safe-restart-bot.sh` if confirmed.
+
 ## Tuning + gauntlet workflow
 
 The combined loop for any eval/search change:
