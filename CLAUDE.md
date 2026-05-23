@@ -8,21 +8,37 @@ A classical UCI chess engine in C, running as an always-on bot on Raspberry Pi 4
 /home/bertrand/
 ├── chess-c/                  # C engine (this repo)
 │   ├── src/
-│   │   ├── main.c            # Entry point, loads opening book
-│   │   ├── board.c/.h        # Move generation, position state, Zobrist
-│   │   ├── eval.c/.h         # Material + PSTs + mobility + king safety
-│   │   ├── search.c/.h       # Iterative deepening, PVS, null-move, LMR, killers, history
-│   │   ├── tt.c/.h           # Transposition table
+│   │   ├── main.c            # Entry point, loads opening book + syzygy
+│   │   ├── board.c/.h        # Move generation, position state, Zobrist, magic bitboards
+│   │   ├── eval.c/.h         # Material + PSTs + mobility + king safety (mutable; texel-tunable)
+│   │   ├── search.c/.h       # Iterative deepening, PVS, null-move, LMR, killers, history + PROF probes
+│   │   ├── tt.c/.h           # Transposition table (XOR-key, lock-free SMP)
 │   │   ├── opening.c/.h      # Polyglot book probe
+│   │   ├── syzygy.c/.h       # Adapter over external/tbprobe (Fathom)
+│   │   ├── texel.c/.h        # Coordinate-descent eval tuner (`texel` UCI cmd)
 │   │   ├── chat.c/.h         # Builds engine chat lines for lichess-bot
 │   │   ├── perft.c/.h        # Move generation tests
+│   │   ├── bench.c/.h        # In-repo perf bench positions + runner
 │   │   ├── uci.c/.h          # UCI protocol handler
-│   │   └── poly_keys.h       # Polyglot 781 Zobrist constants
-│   ├── book.bin              # Polyglot opening book
-│   ├── Makefile              # `make release`, `make test`, `make clean`
-│   ├── tools/gen_poly_keys.py
-│   ├── match.py / compare.py # A/B match harnesses (legacy)
+│   │   ├── poly_keys.h       # Polyglot 781 Zobrist constants
+│   │   └── build_id.h        # Auto-regen at build (git SHA)
+│   ├── external/             # Vendored Fathom (Syzygy probe, CC0)
+│   ├── tools/
+│   │   ├── safe-restart-bot.sh        # Wait for rpiBot73 idle, then systemctl restart
+│   │   ├── gen-corpus.py              # Build texel corpus from lichess games (PEP-668 safe venv)
+│   │   ├── apply-texel-snapshot.py    # Auto-patch src/eval.c arrays from a snapshot
+│   │   ├── wsl-gauntlet.sh            # Snapshot-based A/B gauntlet (texel-specific)
+│   │   ├── wsl-ab-gauntlet.sh         # Generalized A/B gauntlet by git ref
+│   │   ├── gauntlet-progress.py       # Clean-screen filter w/ ETA banner for fast-chess
+│   │   ├── openings-small.epd         # 20 opening positions for variety in gauntlets
+│   │   ├── bench_compare*.sh          # Pi A/B perf comparison (interleaved-min)
+│   │   ├── nightly_gauntlet.sh        # Stockfish ladder match (systemd timer)
+│   │   └── gen_poly_keys.py / gen_build_info.* / reenable-matchmaking.sh
+│   ├── book.bin              # Polyglot opening book (gitignored, `make book`)
+│   ├── Makefile              # `make release|test|clean|bench|corpus`
+│   ├── match.py / compare.py # Legacy A/B harness, used by wsl-gauntlet via monkey-patch
 │   └── chess-engine-c        # Built binary
+├── syzygy/                   # 3-4-5-piece tablebases, ~939 MB (gitignored)
 ├── lichess-bot/              # Python bridge: engine ↔ Lichess API
 │   ├── config-c.yml          # CANONICAL — used by lichess-bot-c.service (rpiBot73)
 │   ├── config.yml            # legacy — used by the disabled lichess-bot.service
@@ -76,8 +92,9 @@ The Pi has 4 cores. The running engine subprocess uses all of them under `Thread
 
 - `sudo systemctl restart lichess-bot-c` (kills the engine subprocess → forfeits the ongoing game)
 - `make bench-compare`, `make bench-compare-timed`, `make bench` (competes for the same 4 cores → live engine times out / blunders)
-- `python3 ladder_match.py` or any gauntlet vs Stockfish (long-running, full CPU)
-- `match.py` / `compare.py` A/B match harnesses
+- `python3 ladder_match.py` / `match.py` / `compare.py` (legacy A/B harnesses)
+- `python3 /tmp/lmr-gauntlet.py` / `/tmp/texel-gauntlet.py` (Pi self-play wrappers around match.py)
+- `texel <epd>` UCI command (eats one core for hours on a real corpus — run on WSL)
 
 **Idle check (one-liner):**
 ```bash
@@ -86,6 +103,8 @@ curl -s http://127.0.0.1:8080/api/status?bot=rpibot73 \
 ```
 
 If it prints `PLAYING <id>`, wait. Polite poll interval: 30-60 s. The game URL is `https://lichess.org/<id>` if you want to watch it finish. Building (`make release`) does not need to wait — only the binary on disk is changed; the running service keeps using the binary it `exec()`'d at startup, until the next restart.
+
+**Safer way to deploy a new binary:** `./tools/safe-restart-bot.sh` polls idle, then `systemctl restart`s, then verifies the new build SHA is in the journal. Use `--now` to abort if not currently idle instead of polling.
 
 ## Bot account
 
@@ -99,15 +118,16 @@ If it prints `PLAYING <id>`, wait. Polite poll interval: 30-60 s. The game URL i
 | Layer | Detail |
 |---|---|
 | Move generation | Bitboards, magic-bitboard sliders (`board.c`, magics generated at startup) |
-| Search | Iterative deepening, PVS, LMR, null-move pruning, killers, history, counter-moves, aspiration windows, check extensions |
-| Quiescence | Captures only, MVV-LVA ordering, queen-promotion bonus, SEE pruning |
-| Transposition table | 64 MB source default; **384 MB in production** via `Hash` in `config-c.yml`. Zobrist-keyed, replace-by-depth, XOR-key for lock-free SMP. |
-| Repetition | 2-fold within search treated as draw; halfmove clock bounded; rep_stack seeded from game history |
-| Evaluation | Material + piece-square tables + mobility + king safety + pawn structure |
+| Search | Iterative deepening, PVS, LMR, NMP, RFP, futility, LMP, killers, history (gravity + symmetric malus), counter-moves, aspiration windows, check extensions |
+| Quiescence | Pseudo-captures → SEE-prune → legality. In-check generates all evasions. Queen-promotion bonus. |
+| Transposition table | 64 MB source default; **384 MB in production** via `Hash` in `config-c.yml`. Zobrist-keyed, replace-by-depth, XOR-key for lock-free SMP, cached static eval. |
+| Repetition | 2-fold within search treated as draw; halfmove clock bounded; rep_stack seeded from game history (via `find_best_move_smp_hist`) |
+| Evaluation | PeSTO tapered: material + PSTs (MG/EG, mutable for texel) + mobility + king safety + pawn structure (passed/doubled/isolated) + bishop pair |
 | Opening book | Polyglot `.bin` file — `/home/bertrand/chess-c/book.bin` (path hardcoded in `main.c`, falls back to `./book.bin`) |
 | Tablebases | **Syzygy 3-4-5-piece** via Fathom (`external/tbprobe.c`, vendored CC0). Files at `/home/bertrand/syzygy/` (~939 MB). Root probe is DTZ-aware; in-search probe is WDL-only. |
-| Time management | `total_time / moves_left * 0.9`; soft budget predicts next iteration as 2× the last and aborts before starting it if that wouldn't fit in the remaining budget (fixed 2026-05-17 — old formula aborted at 50% of total budget regardless of iteration time) |
-| UCI options | Hash (1-4096 MB), Threads (Lazy SMP), Move Overhead, Minimum Thinking Time, SyzygyPath, SyzygyProbeLimit, Syzygy50MoveRule, SyzygyProbeDepth — all honored. |
+| Time management | `total_time / moves_left * 0.9 + inc*3/4`, capped at `our_time / 2`, minus `Move Overhead`. Soft budget aborts next iteration if predicted 2× last wouldn't fit. |
+| Tuning probes | `info string PROF …` per ID iteration — ordering / lmr_research / nmp_yield / see_qprune rates + RFP/futility/LMP/asp_widens counts (see PROF section). |
+| UCI options | Hash, Threads (Lazy SMP), Move Overhead, Minimum Thinking Time, SyzygyPath, SyzygyProbeLimit, Syzygy50MoveRule, SyzygyProbeDepth — all honored. |
 
 ## Engine chat (lichess relay)
 
@@ -156,24 +176,102 @@ Implemented via vendored Fathom (`external/tbprobe.c`, CC0). Loaded at startup f
 - **UCI options**: `SyzygyPath` (re-initializes Fathom on change), `SyzygyProbeLimit` (0–7), `Syzygy50MoveRule` (true folds cursed-win/blessed-loss into draw), `SyzygyProbeDepth` (skip probe at low remaining depth).
 - Fathom is built with `-w -DNDEBUG` so a malformed FEN can't trip an internal assertion. Real lichess games only feed legal positions.
 
-## Texel-style eval tuning
+## PROF instrumentation (find where to gain Elo)
 
-`src/texel.{c,h}` implements coordinate-descent over the material + PST values (778 parameters), fitted against a labeled EPD corpus. UCI command:
+`search.c` emits one extra `info string PROF …` line per completed ID iteration with derived rates that surface tuning targets:
 
-```bash
-make corpus               # ~50 MB, 750k positions from Ethereal's quiet-labeled.epd
-printf 'texel quiet-labeled.epd\nquit\n' | ./chess-engine-c
-# → snapshots ./texel-snapshot.txt after every pass; paste the arrays back into src/eval.c
+```
+info string PROF ordering=94.4% lmr_research=0.5% nmp_yield=79.7%
+                  see_qprune=63.6% rfp=N fut=N lmp=N asp_widens=N
 ```
 
-The tuner refits the sigmoid `K` once at start (compensates for our eval's cp scale being different from Stockfish's), then runs passes of ±step probes per parameter; step halves when no parameter improves, exits when step reaches 0. Snapshot file is written every pass so SIGINT doesn't lose work.
+Rule-of-thumb thresholds (the things you'd actually act on):
 
-**On a Pi 4, the full corpus is slow** — coordinate descent on 778 params × 750k positions is ~30 min/pass. Run on a faster host (eval is portable), paste the snapshot, rebuild, gauntlet-test the new binary, commit if it improved.
+| Metric | Healthy | Implies if off |
+|---|---|---|
+| `ordering` (cutoffs_first / cutoffs) | > 90 % | < 85 % → move ordering weak |
+| `lmr_research` | 10-20 % | < 5 % → LMR too conservative; > 25 % → too aggressive |
+| `nmp_yield` (nullcuts / nmp_attempts) | > 50 % | < 30 % → NMP wasting work |
+| `see_qprune` (see_qprunes / qnodes) | 30-70 % | < 30 % → SEE not pulling weight in qsearch |
+| `asp_widens` per search | ≤ 2 | > 2 → window starting too tight |
+
+Quick sample (5 s middlegame search on x86):
+```bash
+printf 'position fen r1bq1rk1/pp2bppp/2n1pn2/3p4/3P1B2/2NBP3/PP3PPP/R2QK1NR w KQ - 0 9\ngo movetime 5000\nquit\n' \
+  | ./chess-engine-c 2>&1 | grep "string PROF" | tail -3
+```
+
+The PROF line is a separate `info string` so dashboard parsers keyed off the depth-line schema don't need to change.
+
+## Tuning + gauntlet workflow
+
+The combined loop for any eval/search change:
+
+1. **PROF** → identify weak metric (e.g. `lmr_research=0.5%` → LMR too conservative)
+2. **Branch** → `git checkout -b <change>-tune`, apply minimal change, push
+3. **Pi gauntlet** (40 games, ~30 min, ±100 Elo confidence) → direction check
+   - Build baseline + variant binaries, stop service, run `/tmp/<change>-gauntlet.py -n 40 -t 20`, restart service
+4. **WSL gauntlet** (200-400 games, ~20 min on 12-core, ±25-40 Elo confidence) → magnitude
+   - `tools/wsl-ab-gauntlet.sh main <change>-tune` — see "Gauntlet infrastructure" below
+5. **Deploy**: merge branch → main, `./tools/safe-restart-bot.sh`. Production unaffected until then.
+
+**What's been tried** (see git log for details, branches still on origin):
+- `lmr-tune` (`0.85 + log(d)·log(m)/2.0`) — Pi +53 ± 113, WSL +9 ± 24. Marginal real gain.
+- `lmr-tune-v2` (`1.0 + log(d)·log(m)/1.75`) — pending WSL confirmation.
+- Texel snapshot from 87k bot games — Pi -61 ± 114, WSL -145 ± 41. **Discarded** (corpus too noisy, coordinate descent overfits).
+
+## Gauntlet infrastructure
+
+Two scripts, both pipe through `tools/gauntlet-progress.py` for clean output (ETA banner, no UCI noise).
+
+**`tools/wsl-ab-gauntlet.sh <ref-A> <ref-B>` — generalized, branch-based.** Builds each ref's binary in turn, runs `fast-chess` head-to-head, restores the original branch on exit via trap. Auto-fetches missing refs from origin. Use this for any search/eval change committed to a branch.
+
+```bash
+GAMES=400 CONCURRENCY=12 tools/wsl-ab-gauntlet.sh main lmr-tune-v2
+```
+
+**`tools/wsl-gauntlet.sh [snapshot.txt]` — snapshot-based, texel-specific.** Applies a `texel-snapshot.txt` to `src/eval.c`, builds, then reverts. For testing an uncommitted snapshot file.
+
+**Requires `fast-chess`** (`cutechess-cli` dropped from recent Ubuntu repos):
+```bash
+git clone --depth 1 https://github.com/Disservin/fast-chess.git ~/fast-chess
+cd ~/fast-chess && make -j$(nproc)
+sudo ln -sf "$(pwd)/app/fast-chess" /usr/local/bin/fast-chess
+```
+
+Output format on screen (per rating-interval block):
+```
+[120/400  elapsed 8:14  ETA 19:21]
+  main vs lmr-tune-v2  32 - 67 - 21  Elo +21.7 ±28.4  LOS 93.4%  (main ahead)
+```
+
+**Read fast-chess's Elo numbers from engine-A's perspective** — positive = A ahead, LOS = chance A is truly better. The `(X ahead)` annotation makes it obvious.
+
+## Texel-style eval tuning
+
+`src/texel.{c,h}` implements coordinate-descent over the material + PST values (778 parameters), fitted against a labeled EPD corpus. With L2 regularization toward starting values so single-noisy-direction overfitting can't happen. UCI command:
+
+```bash
+make corpus                                       # generates corpus from rpiBot73's lichess games
+printf 'texel quiet-labeled.epd\nquit\n' | ./chess-engine-c
+# → snapshots ./texel-snapshot.txt every pass
+python3 tools/apply-texel-snapshot.py             # auto-patches src/eval.c
+make release
+tools/wsl-ab-gauntlet.sh main HEAD                # confirm before commit/deploy
+```
+
+**Modes:** `texel <epd>` tunes material+PSTs (778 params, default). `texel <epd> material` tunes only material (10 params; fast smoke test, ~impossible to overfit).
+
+**Corpus generation** — `tools/gen-corpus.py` pulls rated games via the Lichess API and writes `<FEN> c9 "<result>";` lines. Ethereal's `quiet-labeled.epd` (the classic corpus) is no longer hosted, so this is the replacement. Self-bootstraps a `.venv-corpus/` to side-step PEP-668 (Debian/Ubuntu refuses `pip install` against system python).
+
+**On a Pi 4, full corpus is slow** — coordinate descent on 778 params × 87k positions is ~30 min/pass. Run on a faster host (WSL = ~10× faster), copy the snapshot back. The texel approach as currently implemented is **mildly to badly counterproductive** on bot-vs-bot corpora — see "Known gaps".
 
 ## Known gaps
 
-- No neural-network eval (NNUE). Classical eval ceiling is ~2200–2400 Elo with perfect tuning; NNUE adds ~400+ Elo but requires a training pipeline.
-- 6-7 piece tablebases not on disk (5-piece is ~939 MB; 6-piece would be ~150 GB).
+- **No NNUE.** Classical eval ceiling is ~2200–2400 Elo with perfect tuning; NNUE adds ~400+ Elo but requires a training pipeline. On Pi 4 ARM (NEON, no AVX2), realistic NNUE gain is ~+150–300 (vs +400+ on x86) because Pi 4 NPS drops 2–4× under NNUE eval cost.
+- **6-7-piece tablebases not on disk** (5-piece is ~939 MB; 6-piece would be ~150 GB).
+- **Texel tuner's optimizer is the bottleneck.** Coordinate descent on a noisy bot-game corpus (87k positions, 778 params) reliably overfits. Tested snapshot lost -145 ± 41 Elo on WSL. Two paths to make texel useful: (a) cleaner corpus (Stockfish-vs-Stockfish self-play at depth 12+), or (b) better optimizer (Adam / finite-difference gradient descent). Until one of those, stick to manual targeted changes per PROF signals.
+- **GPU on Pi 4 is not useful** — VideoCore VI is a graphics GPU (~32 GFLOPS, no tensor cores, immature compute stack). Chess search is sequential anyway; GPU dispatch overhead would dominate the eval cost. Only path to neural play on this hardware is NNUE on CPU.
 
 ## Lichess matchmaking — known issues
 
