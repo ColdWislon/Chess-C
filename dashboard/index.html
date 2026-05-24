@@ -438,7 +438,71 @@
     <div class="pv-line" id="pv-row" style="display:none">
       <span class="pv-label">Best line</span><span id="pv-moves"></span>
     </div>
+    <!-- Book + TB stats inline -->
+    <div class="engine-grid-mini" id="book-tb-row" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);display:none">
+      <div class="engine-mini tip" data-tip="Moves played from the Polyglot opening book without searching. Book moves are instant and save the full time budget.">
+        <div class="mini-val" id="eng-book">—</div>
+        <div class="mini-key">Book moves</div>
+      </div>
+      <div class="engine-mini tip" data-tip="Syzygy tablebase hits during the last search iteration. A hit means perfect endgame play without further search.">
+        <div class="mini-val" id="eng-tbhits">—</div>
+        <div class="mini-key">TB hits</div>
+      </div>
+    </div>
   </div>
+</div>
+
+<!-- PROF: Search internals -->
+<div id="prof-section" class="engine-card" style="display:none">
+  <h2 style="margin-bottom:14px">Search internals</h2>
+  <div class="engine-grid-mini">
+    <div class="engine-mini tip" data-tip="Move ordering quality: % of beta cutoffs on the first move tried. >90% = excellent. The higher, the less work wasted on bad moves.">
+      <div class="mini-val" id="prof-ordering">—</div>
+      <div class="mini-key">Ordering</div>
+      <div class="mini-bar"><div class="mini-bar-fill" id="bar-prof-ordering" style="width:0%"></div></div>
+    </div>
+    <div class="engine-mini tip" data-tip="% of LMR-reduced moves that beat alpha and needed full-depth research. 10-20% = healthy. Too low = LMR too conservative, too high = too aggressive.">
+      <div class="mini-val" id="prof-lmr">—</div>
+      <div class="mini-key">LMR research</div>
+      <div class="mini-bar"><div class="mini-bar-fill" id="bar-prof-lmr" style="width:0%"></div></div>
+    </div>
+    <div class="engine-mini tip" data-tip="% of null-move pruning attempts that succeeded. >50% = productive. Low = NMP wasting work trying positions where it doesn't apply.">
+      <div class="mini-val" id="prof-nmp">—</div>
+      <div class="mini-key">NMP yield</div>
+      <div class="mini-bar"><div class="mini-bar-fill" id="bar-prof-nmp" style="width:0%"></div></div>
+    </div>
+    <div class="engine-mini tip" data-tip="% of qsearch nodes pruned by Static Exchange Evaluation. Higher = more tactical shortcuts taken at the leaves.">
+      <div class="mini-val" id="prof-see">—</div>
+      <div class="mini-key">SEE prune</div>
+      <div class="mini-bar"><div class="mini-bar-fill" id="bar-prof-see" style="width:0%"></div></div>
+    </div>
+    <div class="engine-mini tip" data-tip="Reverse-futility prunes: branches skipped because static eval was already far above beta. More = less wasted effort on clearly won subtrees.">
+      <div class="mini-val" id="prof-rfp">—</div>
+      <div class="mini-key">RFP</div>
+    </div>
+    <div class="engine-mini tip" data-tip="Aspiration window re-searches this iteration. 0-1 = good, >2 = window started too tight for this position's volatility.">
+      <div class="mini-val" id="prof-asp">—</div>
+      <div class="mini-key">ASP widens</div>
+    </div>
+  </div>
+</div>
+
+<!-- Rating sparkline -->
+<div id="rating-chart-card" class="chart-card" style="display:none">
+  <h3 style="font-size:0.74rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">Rating trend (last 50 games)</h3>
+  <svg class="chart-svg" id="rating-sparkline" style="height:80px"></svg>
+</div>
+
+<!-- Win rate by TC -->
+<div id="winrate-tc-card" class="board-card" style="display:none">
+  <h2>Win rate by time control</h2>
+  <div id="winrate-tc-body" style="display:flex;gap:12px;flex-wrap:wrap"></div>
+</div>
+
+<!-- Last game summary -->
+<div id="last-game-card" class="board-card" style="display:none">
+  <h2>Last game performance</h2>
+  <div class="engine-grid-mini" id="last-game-body"></div>
 </div>
 
 <!-- Current-game charts: score over moves + move-time over moves -->
@@ -680,6 +744,7 @@ function updateEngineUI(d, live) {
   setBar('bar-qpct', qpct ?? 0, 'var(--purple)');
 
   document.getElementById('eng-nullcuts').textContent = fmtK(d.nullcuts);
+  document.getElementById('eng-tbhits').textContent = fmtK(d.tbhits);
   updatePV(d.pv);
 
   if (live) {
@@ -694,6 +759,81 @@ function updateEngineUI(d, live) {
   }
 }
 
+function updateProfUI(prof) {
+  if (!prof || !prof.ordering) return;
+  document.getElementById('prof-section').style.display = '';
+  document.getElementById('prof-ordering').textContent = prof.ordering.toFixed(1) + '%';
+  setBar('bar-prof-ordering', prof.ordering, prof.ordering > 90 ? 'var(--green)' : prof.ordering > 85 ? 'var(--yellow)' : 'var(--red)');
+  document.getElementById('prof-lmr').textContent = prof.lmr_research != null ? prof.lmr_research.toFixed(1) + '%' : '—';
+  setBar('bar-prof-lmr', Math.min(prof.lmr_research * 5, 100), prof.lmr_research > 20 ? 'var(--red)' : prof.lmr_research > 5 ? 'var(--green)' : 'var(--yellow)');
+  document.getElementById('prof-nmp').textContent = prof.nmp_yield != null ? prof.nmp_yield.toFixed(1) + '%' : '—';
+  setBar('bar-prof-nmp', prof.nmp_yield, prof.nmp_yield > 50 ? 'var(--green)' : 'var(--yellow)');
+  document.getElementById('prof-see').textContent = prof.see_qprune != null ? prof.see_qprune.toFixed(1) + '%' : '—';
+  setBar('bar-prof-see', prof.see_qprune, 'var(--blue)');
+  document.getElementById('prof-rfp').textContent = fmtK(prof.rfp);
+  document.getElementById('prof-asp').textContent = prof.asp_widens != null ? String(prof.asp_widens) : '—';
+}
+
+function renderRatingSparkline(points) {
+  const card = document.getElementById('rating-chart-card');
+  if (!points || points.length < 2) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const svg = document.getElementById('rating-sparkline');
+  const w = svg.clientWidth || 400, h = 80;
+  const ratings = points.map(p => p.rating);
+  const min = Math.min(...ratings) - 10, max = Math.max(...ratings) + 10;
+  const range = max - min || 1;
+  const pts = points.map((p, i) => {
+    const x = (i / (points.length - 1)) * w;
+    const y = h - ((p.rating - min) / range) * (h - 10) - 5;
+    return `${x},${y}`;
+  });
+  const colors = points.map(p => p.result === 'win' ? 'var(--green)' : p.result === 'loss' ? 'var(--red)' : 'var(--yellow)');
+  let dots = points.map((p, i) => {
+    const x = (i / (points.length - 1)) * w;
+    const y = h - ((p.rating - min) / range) * (h - 10) - 5;
+    return `<circle cx="${x}" cy="${y}" r="3" fill="${colors[i]}" opacity="0.8"/>`;
+  }).join('');
+  const latest = ratings[ratings.length - 1];
+  svg.innerHTML = `
+    <polyline points="${pts.join(' ')}" fill="none" stroke="var(--blue)" stroke-width="1.5" opacity="0.7"/>
+    ${dots}
+    <text x="${w-4}" y="12" text-anchor="end" fill="var(--text)" font-size="11" font-weight="700">${latest}</text>
+    <text x="4" y="${h-2}" fill="var(--muted)" font-size="9">${min + 10}</text>
+    <text x="4" y="10" fill="var(--muted)" font-size="9">${max - 10}</text>
+  `;
+}
+
+function renderWinRateByTC(data) {
+  const card = document.getElementById('winrate-tc-card');
+  if (!data || Object.keys(data).length === 0) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const body = document.getElementById('winrate-tc-body');
+  body.innerHTML = Object.entries(data).map(([tc, s]) => {
+    const winPct = s.total ? (s.wins / s.total * 100).toFixed(0) : 0;
+    const drawPct = s.total ? (s.draws / s.total * 100).toFixed(0) : 0;
+    return `<div class="stat-card" style="min-width:120px;flex:1">
+      <div class="stat-value" style="font-size:1.4rem;color:var(--green)">${winPct}%</div>
+      <div class="stat-label" style="text-transform:capitalize">${tc}</div>
+      <div class="stat-sub">${s.wins}W ${s.draws}D ${s.losses}L / ${s.total}g</div>
+    </div>`;
+  }).join('');
+}
+
+function renderLastGameSummary(data) {
+  const card = document.getElementById('last-game-card');
+  if (!data || !data.avg_depth) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  document.getElementById('last-game-body').innerHTML = `
+    <div class="engine-mini"><div class="mini-val">${data.book_moves}</div><div class="mini-key">Book moves</div></div>
+    <div class="engine-mini"><div class="mini-val">${data.moves_searched}</div><div class="mini-key">Searched</div></div>
+    <div class="engine-mini"><div class="mini-val">${data.avg_depth}</div><div class="mini-key">Avg depth</div></div>
+    <div class="engine-mini"><div class="mini-val">${data.max_depth || '—'}</div><div class="mini-key">Max depth</div></div>
+    <div class="engine-mini"><div class="mini-val">${data.avg_nps ? fmtK(data.avg_nps) + '/s' : '—'}</div><div class="mini-key">Avg NPS</div></div>
+    <div class="engine-mini"><div class="mini-val">${data.biggest_swing_cp ? (data.biggest_swing_cp/100).toFixed(1) + 'p' : '—'}</div><div class="mini-key">Max swing${data.swing_move ? ' (m' + data.swing_move + ')' : ''}</div></div>
+  `;
+}
+
 // ---- SSE for real-time engine ----
 let engineSource = null;
 
@@ -702,6 +842,7 @@ function startEngineStream() {
   engineSource = new EventSource(`/api/engine-stream?bot=${currentBot}`);
   engineSource.onmessage = e => {
     const d = JSON.parse(e.data);
+    if (d.prof) { updateProfUI(d.prof); return; }
     updateEngineUI(d, true);
   };
   engineSource.onerror = () => {
@@ -808,6 +949,12 @@ async function refresh() {
   if (data.engine_stats?.depth != null) {
     engSection.style.display = '';
     updateEngineUI(data.engine_stats, false);
+    // PROF metrics
+    if (data.engine_stats.prof) updateProfUI(data.engine_stats.prof);
+    // Book/TB row
+    const btRow = document.getElementById('book-tb-row');
+    btRow.style.display = '';
+    document.getElementById('eng-tbhits').textContent = fmtK(data.engine_stats.tbhits);
   } else {
     engSection.style.display = 'none';
   }
@@ -827,6 +974,17 @@ async function refresh() {
   updateQuota(data.games_today);
   // Openings repertoire
   updateOpenings(data.openings);
+  // Rating sparkline
+  renderRatingSparkline(data.rating_history);
+  // Win rate by TC
+  renderWinRateByTC(data.win_rate_by_tc);
+  // Last game summary
+  renderLastGameSummary(data.last_game_summary);
+  // Book moves from move history
+  if (data.last_game_summary) {
+    document.getElementById('eng-book').textContent = String(data.last_game_summary.book_moves || 0);
+    document.getElementById('book-tb-row').style.display = '';
+  }
   // Current-game charts (separate fetch since journal-tail is heavier)
   refreshCharts((data.current_game || {}).id);
 

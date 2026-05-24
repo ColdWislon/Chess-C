@@ -148,10 +148,39 @@ INFO_FIELDS = [
     ("cutoffs",  r"cutoffs (\d+)"),
     ("cutoffs1", r"cutoffs1 (\d+)"),
     ("nullcuts", r"nullcuts (\d+)"),
+    ("tbhits",   r"tbhits (\d+)"),
 ]
 # `pv` is parsed separately because it's an unbounded string trailing the line.
 PV_PATTERN = re.compile(r"\bpv ([a-h1-8 a-zA-Z0-9]+?)(?:\s*$)")
 BUILD_PATTERN = re.compile(r"info string BUILD (\S+)")
+
+# PROF line: `info string PROF ordering=94.4% lmr_research=0.5% ...`
+PROF_PATTERN = re.compile(r"info string PROF (.+)")
+PROF_FIELDS = [
+    ("ordering",     r"ordering=([\d.]+)%"),
+    ("lmr_research", r"lmr_research=([\d.]+)%"),
+    ("nmp_yield",    r"nmp_yield=([\d.]+)%"),
+    ("see_qprune",   r"see_qprune=([\d.]+)%"),
+    ("rfp",          r"rfp=(\d+)"),
+    ("fut",          r"fut=(\d+)"),
+    ("lmp",          r"lmp=(\d+)"),
+    ("asp_widens",   r"asp_widens=(\d+)"),
+]
+
+
+def parse_prof(line: str) -> dict:
+    """Parse a PROF info-string line into a dict of float/int values."""
+    m = PROF_PATTERN.search(line)
+    if not m:
+        return {}
+    text = m.group(1)
+    out = {}
+    for key, pat in PROF_FIELDS:
+        fm = re.search(pat, text)
+        if fm:
+            val = fm.group(1)
+            out[key] = float(val) if '.' in val else int(val)
+    return out
 
 BUILD_INFO_PATH    = Path("/home/bertrand/chess-c/build-info.json")
 BENCH_RESULT_PATH  = Path("/home/bertrand/chess-c/last-bench.json")
@@ -571,6 +600,87 @@ def last_gauntlet_result() -> dict | None:
     }
 
 
+def rating_history(recent: list[dict], bot_name: str) -> list[dict]:
+    """Compute rating progression from recent games (newest first from API).
+    Returns a list of {ts, rating, tc, result} oldest-first for sparkline."""
+    bot_low = bot_name.lower()
+    points = []
+    for g in reversed(recent or []):
+        white_user = (g.get("players", {}).get("white", {}).get("user", {}) or {})
+        bot_color = "white" if white_user.get("name", "").lower() == bot_low else "black"
+        player = g.get("players", {}).get(bot_color, {})
+        rating = player.get("rating")
+        diff = player.get("ratingDiff")
+        if rating is None:
+            continue
+        tc = g.get("speed", "")
+        winner = g.get("winner")
+        result = "draw" if not winner else ("win" if winner == bot_color else "loss")
+        points.append({
+            "ts": g.get("lastMoveAt") or g.get("createdAt", 0),
+            "rating": rating + (diff or 0),
+            "tc": tc,
+            "result": result,
+        })
+    return points
+
+
+def win_rate_by_tc(recent: list[dict], bot_name: str) -> dict:
+    """Win/draw/loss counts per time control from recent games."""
+    bot_low = bot_name.lower()
+    buckets: dict[str, dict] = {}
+    for g in recent or []:
+        tc = g.get("speed", "unknown")
+        white_user = (g.get("players", {}).get("white", {}).get("user", {}) or {})
+        bot_color = "white" if white_user.get("name", "").lower() == bot_low else "black"
+        winner = g.get("winner")
+        result = "draw" if not winner else ("win" if winner == bot_color else "loss")
+        b = buckets.setdefault(tc, {"wins": 0, "draws": 0, "losses": 0, "total": 0})
+        b["total"] += 1
+        if result == "win": b["wins"] += 1
+        elif result == "loss": b["losses"] += 1
+        else: b["draws"] += 1
+    return buckets
+
+
+def last_game_summary(recent: list[dict], bot_name: str, service: str) -> dict | None:
+    """Summary stats for the most recent completed game."""
+    if not recent:
+        return None
+    mh = move_history(service)
+    moves = mh.get("moves", [])
+    if not moves:
+        return None
+    depths = [m["depth"] for m in moves if m.get("depth")]
+    times = [m["time_ms"] for m in moves if m.get("time_ms")]
+    scores = [m["score_cp"] for m in moves if m.get("score_cp") is not None]
+    nodes_list = [m["nodes"] for m in moves if m.get("nodes")]
+
+    avg_depth = sum(depths) / len(depths) if depths else None
+    max_depth = max(depths) if depths else None
+    avg_nps = sum(nodes_list) / (sum(times) / 1000) if times and sum(times) > 0 else None
+    total_time_s = sum(times) / 1000 if times else None
+
+    biggest_swing = 0
+    swing_move = None
+    for i in range(1, len(scores)):
+        swing = abs(scores[i] - scores[i-1])
+        if swing > biggest_swing:
+            biggest_swing = swing
+            swing_move = moves[i].get("move_num")
+
+    return {
+        "moves_searched": len(moves),
+        "book_moves": mh.get("book_count", 0),
+        "avg_depth": round(avg_depth, 1) if avg_depth else None,
+        "max_depth": max_depth,
+        "avg_nps": int(avg_nps) if avg_nps else None,
+        "total_time_s": round(total_time_s, 1) if total_time_s else None,
+        "biggest_swing_cp": biggest_swing if biggest_swing > 0 else None,
+        "swing_move": swing_move,
+    }
+
+
 def games_today_count(recent: list[dict], bot_name: str) -> dict:
     """From the existing recent_games list, count games started today (UTC)
     against other bots. Used as a proxy for the lichess 100/day bot-vs-bot
@@ -623,13 +733,24 @@ def opening_repertoire(recent: list[dict], bot_name: str, top_n: int = 5) -> dic
 
 
 def engine_stats(service: str) -> dict:
-    """Parse the last 'info depth' line from the bot's journal."""
+    """Parse the last 'info depth' + PROF lines from the bot's journal."""
     out = _journal_cat(service)
+    result = {}
+    prof = {}
     for line in reversed(out.splitlines()):
-        info = parse_info(line)
-        if info and "depth" in info:
-            return info
-    return {}
+        if not result:
+            info = parse_info(line)
+            if info and "depth" in info:
+                result = info
+        if not prof:
+            p = parse_prof(line)
+            if p:
+                prof = p
+        if result and prof:
+            break
+    if prof:
+        result["prof"] = prof
+    return result
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -711,6 +832,12 @@ class Handler(BaseHTTPRequestHandler):
                     payload = json.dumps(info)
                     self.wfile.write(f"data: {payload}\n\n".encode())
                     self.wfile.flush()
+                    continue
+                prof = parse_prof(line)
+                if prof:
+                    payload = json.dumps({"prof": prof})
+                    self.wfile.write(f"data: {payload}\n\n".encode())
+                    self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass
         finally:
@@ -782,6 +909,9 @@ class Handler(BaseHTTPRequestHandler):
             "build_id":          latest_build_id(service),
             "games_today":       games_today_count(recent, name),
             "openings":          opening_repertoire(recent, name),
+            "rating_history":    rating_history(recent, name),
+            "win_rate_by_tc":    win_rate_by_tc(recent, name),
+            "last_game_summary": last_game_summary(recent, name, service),
         }
 
 
