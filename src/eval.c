@@ -4,6 +4,11 @@
    transitions from "stay back" in the middlegame to "centralize" in the
    endgame without any explicit king-walk logic. */
 #include "eval.h"
+#include <string.h>
+
+#define PAWN_HASH_SIZE 16384
+typedef struct { uint64_t key; int mg; int eg; } PawnEntry;
+static PawnEntry pawn_hash[PAWN_HASH_SIZE];
 
 /* ── Material ──
    NOT static-const: mutable so the Texel tuner (src/texel.c) can refit them.
@@ -173,10 +178,30 @@ static int compute_phase(const Position *pos) {
     return (p > PHASE_MAX) ? PHASE_MAX : p;
 }
 
+static uint64_t pawn_key(const Position *pos) {
+    uint64_t h = 0;
+    for (int c = 0; c < 2; c++) {
+        uint64_t bb = pos->pieces[c][PAWN];
+        while (bb) {
+            int sq = lsb64(bb); bb &= bb - 1;
+            h ^= ZOBRIST_PIECE[c][PAWN][sq];
+        }
+    }
+    return h;
+}
+
 /* Pawn structure: doubled / isolated penalties and passed pawn bonus.
    Passed pawn bonus is much larger in EG since there's less material to stop
-   the runner. */
+   the runner. Cached via a small pawn hash table. */
 static void pawn_structure(const Position *pos, int *mg_out, int *eg_out) {
+    uint64_t pk = pawn_key(pos);
+    PawnEntry *pe = &pawn_hash[pk % PAWN_HASH_SIZE];
+    if (pe->key == pk) {
+        *mg_out = pe->mg;
+        *eg_out = pe->eg;
+        return;
+    }
+
     int mg = 0, eg = 0;
     for (int color = 0; color < 2; color++) {
         int sign = (color == WHITE) ? 1 : -1;
@@ -223,6 +248,9 @@ static void pawn_structure(const Position *pos, int *mg_out, int *eg_out) {
             }
         }
     }
+    pe->key = pk;
+    pe->mg  = mg;
+    pe->eg  = eg;
     *mg_out = mg;
     *eg_out = eg;
 }

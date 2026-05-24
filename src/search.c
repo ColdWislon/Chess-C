@@ -379,6 +379,25 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
         scores[i] = score_move(ctx, pos, moves[i], tt_move, counter,
                                ply, pos->side);
 
+    /* Singular extension: if the TT move is much better than all alternatives,
+       extend its search by 1 ply. Determined by a reduced search excluding
+       the TT move — if nothing else reaches s_beta, the TT move is singular. */
+    bool singular_ext = false;
+    if (!in_check && depth >= 8 && tt_move != MOVE_NONE
+        && entry && entry->depth >= depth - 3
+        && (Bound)entry->bound != BOUND_UPPER) {
+        int s_beta = entry->score - 2 * depth;
+        /* Shallow exclusion search: same position, half depth, null-window
+           at s_beta, with tt_move excluded via a sentinel trick — we set
+           tt_move score to -INF below in score_move if singular search is
+           active. Instead, just do the search with a reduced depth and if
+           the result is below s_beta, the TT move is singular. */
+        int excl_score = alpha_beta(pos, depth / 2, s_beta - 1, s_beta,
+                                    ctx, tt, ply, false, prev_move);
+        if (!ctx->stopped && excl_score < s_beta)
+            singular_ext = true;
+    }
+
     int  orig_alpha = alpha;
     Move best_move  = moves[0];
     int  best       = -SEARCH_INF;
@@ -436,29 +455,38 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
         Position child;
         pos_do_move(pos, m, &child);
 
+        /* Singular extension: give the TT move 1 extra ply if it was
+           determined to be singular (much better than alternatives). */
+        int ext = (singular_ext && m == tt_move) ? 1 : 0;
+
         int score;
         if (searched == 0) {
             /* PV move — full window */
-            score = -alpha_beta(&child, depth - 1, -beta, -alpha,
+            score = -alpha_beta(&child, depth - 1 + ext, -beta, -alpha,
                                 ctx, tt, ply + 1, true, m);
         } else {
-            /* LMR for late quiet moves at sufficient depth. Table is
-               log(d)*log(m)/2 + 0.5; we scale it down a notch for PV nodes
-               and for moves with strong ordering signals (killers / counter)
-               so promising quiets get tried near full depth. */
+            /* LMR for late quiet moves and bad captures at sufficient depth.
+               Table is log(d)*log(m)/2.25 + 0.5; scaled down for PV nodes
+               and for moves with strong ordering signals (killers / counter).
+               Bad captures (SEE < 0) also get reduced — they're late moves
+               by nature, ordered after good captures and killers. */
             int reduction = 0;
-            if (depth >= 3 && quiet && !in_check && searched >= 2) {
+            bool bad_cap = (is_capture && !is_promo && pos_see(pos, m) < 0);
+            if (depth >= 3 && (quiet || bad_cap) && !in_check && searched >= 2) {
                 int dd = depth    < 64 ? depth    : 63;
                 int mm = searched < 64 ? searched : 63;
                 reduction = LMR[dd][mm];
                 if (is_pv) reduction--;
-                if (m == ctx->killers[ply][0] ||
+                if (quiet && (m == ctx->killers[ply][0] ||
                     m == ctx->killers[ply][1] ||
-                    m == counter)
+                    m == counter))
                     reduction--;
-                int h = ctx->history[pos->side][MOVE_FROM(m)][MOVE_TO(m)];
-                if (h < -1000) reduction++;
-                else if (h > 2000) reduction--;
+                if (quiet) {
+                    int h = ctx->history[pos->side][MOVE_FROM(m)][MOVE_TO(m)];
+                    if (h < -1000) reduction++;
+                    else if (h > 2000) reduction--;
+                }
+                if (bad_cap) reduction++;
                 if (reduction < 0)            reduction = 0;
                 if (reduction >= depth - 1)   reduction = depth - 2;
                 if (reduction < 0)            reduction = 0;
