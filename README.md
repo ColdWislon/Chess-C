@@ -2,7 +2,7 @@
 
 A classical UCI chess engine written from scratch in C, running 24/7 as **[rpiBot73](https://lichess.org/@/rpiBot73)** on Lichess from a Raspberry Pi 4.
 
-No NNUE, no borrowed code, no training data — just bitboards, alpha-beta, and hand-tuned heuristics competing against the bots of Lichess.
+No NNUE, no training data — just bitboards, alpha-beta, and hand-tuned heuristics competing against the bots of Lichess.
 
 ---
 
