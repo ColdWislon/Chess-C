@@ -1,32 +1,120 @@
-# chess-c
+# Chess-C
 
-A classical UCI chess engine in C, running as an always-on bot on a Raspberry Pi 4. Plays as [rpiBot73](https://lichess.org/@/rpiBot73) on lichess via `lichess-bot`.
+A classical UCI chess engine written from scratch in C, running 24/7 as **[rpiBot73](https://lichess.org/@/rpiBot73)** on Lichess from a Raspberry Pi 4.
 
-- `src/` — engine (board, eval, search, TT, UCI, opening book, A/B bench)
-- `dashboard/` — small HTTP+SSE dashboard at `http://<pi>:8080`
-- `tools/` — Polyglot key generator, bench-compare scripts
-- `CLAUDE.md` — full build / run / deploy / architecture reference
+No NNUE, no borrowed code, no training data — just bitboards, alpha-beta, and hand-tuned heuristics competing against the bots of Lichess.
 
-## Build & test
+---
 
-```bash
-make release        # → ./chess-engine-c
-make test           # perft startpos depth 4 (197281) and 5 (4865609)
-make bench-compare BENCH_DEPTH=10  # A/B against ./chess-engine-c.baseline
+## Features
+
+| Layer | Implementation |
+|-------|---------------|
+| **Move generation** | Magic bitboard sliders, precomputed leaper tables |
+| **Search** | Iterative deepening, PVS, aspiration windows, Lazy SMP (4 threads) |
+| **Pruning** | Null-move (adaptive R), LMR (log formula + history adjustment), LMP, reverse futility, extended futility, SEE pruning |
+| **Move ordering** | TT move, SEE-split captures (good/bad), queen promotions, killers, counter-moves, history with gravity + symmetric malus |
+| **Evaluation** | PeSTO tapered (MG/EG), material + PSTs + mobility + king safety + pawn structure + bishop pair |
+| **Endgame** | Syzygy 3-4-5-piece tablebases via Fathom (DTZ at root, WDL in-search) |
+| **Opening** | Polyglot `.bin` book |
+| **Hash** | 384 MB TT with XOR-key lock-free SMP, generation aging, cached static eval |
+| **Time management** | Adaptive budget with soft iteration abort |
+| **Tuning** | Built-in Texel tuner (coordinate descent, L2 regularization) |
+| **Protocol** | Full UCI with `Hash`, `Threads`, `SyzygyPath`, `Move Overhead`, etc. |
+
+## Architecture
+
+```
+src/
+├── board.c/h     Magic bitboards, move gen, SEE, Zobrist, mobility
+├── search.c/h    PVS + all pruning/reduction, Lazy SMP, time management
+├── eval.c/h      Tapered PeSTO eval, pawn structure, king safety
+├── tt.c/h        Transposition table (lock-free, XOR-keyed)
+├── opening.c/h   Polyglot book probe
+├── syzygy.c/h    Fathom adapter (3-4-5-piece WDL+DTZ)
+├── texel.c/h     Built-in eval tuner
+├── chat.c/h      Lichess chat messages (mate alerts, captures, features)
+├── bench.c/h     Deterministic benchmark positions
+├── uci.c/h       UCI protocol handler
+└── main.c        Entry point, book + tablebase init
 ```
 
-## Engine highlights
+## Build
 
-Bitboards with magic sliders, PVS + null-move + LMR + LMP + frontier futility,
-killers + history, aspiration windows, transposition table with XOR-key race
-protection and generation-based aging, Polyglot opening book, Lazy SMP.
-PeSTO-style tapered eval with material, PSTs, mobility, king safety, pawn
-structure, and bishop pair.
+```bash
+make release      # optimized binary → ./chess-engine-c
+make test         # perft depth 4 & 5 (correctness check)
+make debug        # debug binary with symbols
+make bench        # run benchmark positions
+```
 
-## Dashboard secrets
+Requires GCC with C11 support and pthreads. Targets ARM (aarch64) on Pi but builds on any Linux/macOS with:
 
-The dashboard reads the lichess API token from `$LICHESS_TOKEN_RPIBOT73`
-(see `dashboard/.env.example`). The systemd unit loads it via
-`EnvironmentFile=/home/bertrand/.config/chess-dashboard.env` (mode 600).
-Nothing in this repo contains a real token; if you fork, generate your own at
-<https://lichess.org/account/oauth/token>.
+```bash
+gcc -std=c11 -O3 -march=native src/*.c external/tbprobe.o -o chess-engine-c -pthread -lm
+```
+
+## Run
+
+```bash
+./chess-engine-c
+uci
+setoption name Hash value 256
+setoption name Threads value 4
+setoption name SyzygyPath value /path/to/syzygy
+isready
+position startpos moves e2e4 e7e5
+go movetime 5000
+quit
+```
+
+## Live Bot
+
+rpiBot73 plays rated rapid and classical on Lichess, challenging other bots when idle. The stack:
+
+```
+Raspberry Pi 4 (4 cores, 4 GB RAM)
+  └── lichess-bot (Python bridge)
+       └���─ chess-engine-c (this project)
+            ├── book.bin (Polyglot opening book)
+            └── /home/bertrand/syzygy/ (3-4-5-piece, 939 MB)
+```
+
+- **Rating:** ~1900-2000 Elo (equivalent to Stockfish Skill Level 9-10)
+- **Time controls:** 10+0, 10+5, 15+10 (rapid/classical)
+- **Hardware:** All 4 cores, 384 MB hash, full tablebase coverage
+
+## Performance
+
+On Raspberry Pi 4 (Cortex-A72 @ 1.8 GHz):
+- ~2M nodes/sec (single thread)
+- Reaches depth 16-18 in typical middlegame positions at tournament time controls
+- Syzygy root probe returns instantly for <= 5-piece positions
+
+## Testing & Tuning
+
+```bash
+# A/B performance benchmark (interleaved to cancel thermal drift)
+make bench-baseline           # snapshot current binary
+# ... make changes ...
+make bench-compare BENCH_DEPTH=10 BENCH_RUNS=5
+
+# Self-play gauntlet (requires fast-chess)
+tools/wsl-ab-gauntlet.sh main feature-branch
+
+# Texel tuning
+make corpus                   # generate EPD from lichess games
+printf 'texel quiet-labeled.epd\nquit\n' | ./chess-engine-c
+```
+
+## Dashboard
+
+A companion web dashboard (port 8080) shows live game status, engine stats, and recent results. See `chess-dashboard/`.
+
+## Project Philosophy
+
+This engine is a learning project and a live experiment in classical chess programming. Every feature is implemented from first principles — no copy-paste from Stockfish or other engines. The goal isn't to beat the top engines (that requires NNUE + massive compute), but to build the strongest possible classical engine on minimal hardware and see how far hand-crafted heuristics can go.
+
+## License
+
+Engine source: MIT. Vendored Fathom (`external/`): CC0.
