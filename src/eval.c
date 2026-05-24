@@ -255,16 +255,38 @@ static void pawn_structure(const Position *pos, int *mg_out, int *eg_out) {
     *eg_out = eg;
 }
 
-/* King safety: pawns adjacent to king (pawn shield). MG only — in the
-   endgame the king walks to the center and "shielding" actively hurts. */
+/* King safety: pawn shield + attacker count on king zone. MG only. */
 static int king_safety_mg(const Position *pos) {
     int score = 0;
+    uint64_t occ = pos->pieces[0][0]|pos->pieces[0][1]|pos->pieces[0][2]
+                  |pos->pieces[0][3]|pos->pieces[0][4]|pos->pieces[0][5]
+                  |pos->pieces[1][0]|pos->pieces[1][1]|pos->pieces[1][2]
+                  |pos->pieces[1][3]|pos->pieces[1][4]|pos->pieces[1][5];
     for (int color = 0; color < 2; color++) {
         int sign = (color == WHITE) ? 1 : -1;
+        int enemy = 1 - color;
         int king_sq = lsb64(pos->pieces[color][KING]);
         uint64_t friendly = pos->pieces[color][PAWN];
         uint64_t shield   = KING_ATTACKS[king_sq] & friendly;
         score += sign * (int)popcount64(shield) * 10;
+
+        /* King danger: count enemy pieces attacking king zone. */
+        uint64_t king_zone = KING_ATTACKS[king_sq] | SQ_BB(king_sq);
+        int danger = 0;
+        uint64_t bb;
+        bb = pos->pieces[enemy][KNIGHT];
+        while (bb) { int s = lsb64(bb); bb &= bb-1;
+            if (KNIGHT_ATTACKS[s] & king_zone) danger += 2; }
+        bb = pos->pieces[enemy][BISHOP];
+        while (bb) { int s = lsb64(bb); bb &= bb-1;
+            if (board_bishop_attacks(s, occ) & king_zone) danger += 2; }
+        bb = pos->pieces[enemy][ROOK];
+        while (bb) { int s = lsb64(bb); bb &= bb-1;
+            if (board_rook_attacks(s, occ) & king_zone) danger += 3; }
+        bb = pos->pieces[enemy][QUEEN];
+        while (bb) { int s = lsb64(bb); bb &= bb-1;
+            if ((board_bishop_attacks(s, occ) | board_rook_attacks(s, occ)) & king_zone) danger += 5; }
+        score -= sign * danger * danger;
     }
     return score;
 }
@@ -301,6 +323,22 @@ int evaluate(const Position *pos) {
        diagonals dominate open positions. */
     if (popcount64(pos->pieces[WHITE][BISHOP]) >= 2) { mg += 30; eg += 50; }
     if (popcount64(pos->pieces[BLACK][BISHOP]) >= 2) { mg -= 30; eg -= 50; }
+
+    /* Rook on open/semi-open file. */
+    for (int c = 0; c < 2; c++) {
+        int sign = (c == WHITE) ? 1 : -1;
+        uint64_t rooks = pos->pieces[c][ROOK];
+        while (rooks) {
+            int sq = lsb64(rooks); rooks &= rooks - 1;
+            uint64_t fbb = FILE_BB(FILE_OF(sq));
+            if (!(pos->pieces[c][PAWN] & fbb)) {
+                mg += sign * 10; eg += sign * 15;
+                if (!(pos->pieces[1-c][PAWN] & fbb)) {
+                    mg += sign * 10; eg += sign * 10;
+                }
+            }
+        }
+    }
 
     mg += king_safety_mg(pos);  /* MG-only term */
 

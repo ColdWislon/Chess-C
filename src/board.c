@@ -205,6 +205,10 @@ static inline void prefetch_bishop(int sq, uint64_t occ) {
     __builtin_prefetch(&bishop_tbl[sq][(o * bishop_me[sq].magic) >> bishop_me[sq].shift], 0, 1);
 }
 
+/* Public wrappers for slider attack lookups (used by eval king safety). */
+uint64_t board_bishop_attacks(int sq, uint64_t occ) { return bishop_attacks(sq, occ); }
+uint64_t board_rook_attacks(int sq, uint64_t occ)   { return rook_attacks(sq, occ); }
+
 /* ══════════════════════════════════════════════════════════
    Init
    ══════════════════════════════════════════════════════════ */

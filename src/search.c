@@ -76,6 +76,8 @@ typedef struct {
 
     Move     root_best;
 
+    int      eval_stack[MAX_PLY + 1];
+
     /* Principal Variation: pv[ply] is the best line found from that ply
        onward, length pv_len[ply]. After a PV node selects move m, we copy
        child's pv into ours after the leading m. Sized MAX_PLY+1 so that the
@@ -165,6 +167,7 @@ static int quiescence(const Position *pos, int alpha, int beta,
     if (ply >= MAX_PLY) return evaluate(pos);
 
     bool in_check = pos_in_check(pos);
+    int stand_pat = -SEARCH_INF;
 
     Move moves[MAX_MOVES];
     int n;
@@ -174,7 +177,7 @@ static int quiescence(const Position *pos, int alpha, int beta,
         n = pos_gen_moves(pos, moves);
         if (n == 0) return -SEARCH_MATE + ply;
     } else {
-        int stand_pat = evaluate(pos);
+        stand_pat = evaluate(pos);
         if (stand_pat >= beta) return beta;
         if (stand_pat > alpha) alpha = stand_pat;
         /* Pseudo-captures only — we'll SEE-prune before paying legality cost,
@@ -196,6 +199,14 @@ static int quiescence(const Position *pos, int alpha, int beta,
     for (int i = 0; i < n; i++) {
         pick_move(moves, scores, n, i);
         Move m = moves[i];
+
+        /* Delta pruning: if even winning the captured piece cleanly can't
+           raise alpha, skip without the cost of SEE or pos_do_move. */
+        static const int DELTA_VAL[7] = { 100, 320, 330, 500, 900, 0, 0 };
+        if (!in_check && MOVE_CAPTURE(m) != PIECE_NONE) {
+            if (stand_pat + DELTA_VAL[MOVE_CAPTURE(m)] + 200 < alpha)
+                continue;
+        }
 
         /* SEE pruning: skip clearly losing captures when we're not under
            check. We still allow queen promotions through since their
@@ -328,10 +339,18 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
        evaluate() pass on revisits. The TT XOR-key check upstream guarantees
        the entry matches this position and isn't torn. */
     int static_eval = entry ? entry->static_eval : evaluate(pos);
+    ctx->eval_stack[ply] = static_eval;
+    bool improving = (ply >= 2 && static_eval > ctx->eval_stack[ply - 2]);
+
+    /* Razoring: at low depth far below alpha, drop into qsearch. */
+    if (!is_pv && !in_check && depth <= 2 && static_eval + 300 <= alpha) {
+        int q = quiescence(pos, alpha, beta, ctx, ply);
+        if (q <= alpha) return q;
+    }
 
     /* Reverse-futility / static null move (depth ≤ 6, non-pv, not in check) */
     if (!is_pv && !in_check && depth <= 6) {
-        int margin = 90 * depth;
+        int margin = improving ? 90 * depth : 70 * depth;
         if (static_eval - margin >= beta) {
             ctx->rfp_prunes++;
             return static_eval - margin;
@@ -431,10 +450,10 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
 
         /* Late Move Pruning: at low depth, the late quiet moves in a
            well-ordered list are very unlikely to be best. Skip them entirely.
-           Threshold: searched >= 3 + depth*depth (so 4 @d1, 7 @d2, 12 @d3,
-           19 @d4). Only outside PV nodes / when not in check. */
+           Tighter threshold when not improving. */
+        int lmp_threshold = improving ? 3 + depth * depth : 2 + depth * depth;
         if (!is_pv && !in_check && quiet && depth <= 4
-            && searched >= 3 + depth * depth) {
+            && searched >= lmp_threshold) {
             ctx->lmp_prunes++;
             continue;
         }
@@ -616,17 +635,19 @@ static IdResult run_id(SearchCtx *ctx, const Position *pos, int max_depth,
     }
 
     int  prev_score = 0;
+    int  prev_widens = 0;
 
     for (int depth = 1; depth <= max_depth; depth++) {
         long iter_start = ms_now();
         int alpha  = -SEARCH_INF;
         int beta   =  SEARCH_INF;
-        int window = 25;
+        int window = (prev_widens >= 2) ? 50 : 25;
 
         if (depth >= 4) {
             alpha = prev_score - window;
             beta  = prev_score + window;
         }
+        int iter_widens = 0;
 
         int score = 0;
         while (1) {
@@ -636,11 +657,13 @@ static IdResult run_id(SearchCtx *ctx, const Position *pos, int max_depth,
             if (ctx->stopped) break;
             if (score <= alpha) {
                 ctx->asp_widens++;
+                iter_widens++;
                 alpha -= window;
                 window *= 2;
                 if (window > 1000) alpha = -SEARCH_INF;
             } else if (score >= beta) {
                 ctx->asp_widens++;
+                iter_widens++;
                 beta += window;
                 window *= 2;
                 if (window > 1000) beta = SEARCH_INF;
@@ -652,6 +675,7 @@ static IdResult run_id(SearchCtx *ctx, const Position *pos, int max_depth,
         if (ctx->stopped) break;
 
         if (ctx->root_best != MOVE_NONE) r.best_move = ctx->root_best;
+        prev_widens     = iter_widens;
         prev_score      = score;
         r.best_score    = score;
         r.depth_reached = depth;

@@ -143,3 +143,7 @@ extern uint64_t ZOBRIST_SIDE;
 extern uint64_t KNIGHT_ATTACKS[64];
 extern uint64_t KING_ATTACKS[64];
 extern uint64_t PAWN_ATTACKS[2][64];
+
+/* ── Slider attack lookups (magic bitboards) ── */
+uint64_t board_bishop_attacks(int sq, uint64_t occ);
+uint64_t board_rook_attacks(int sq, uint64_t occ);
