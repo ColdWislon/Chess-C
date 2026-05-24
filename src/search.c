@@ -300,6 +300,14 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
     if (depth <= 0)
         return quiescence(pos, alpha, beta, ctx, ply);
 
+    /* Internal Iterative Deepening: at PV nodes with no TT move, do a
+       shallow search to populate the TT, then re-probe for a move hint. */
+    if (is_pv && tt_move == MOVE_NONE && depth >= 4) {
+        alpha_beta(pos, depth - 2, alpha, beta, ctx, tt, ply, false, prev_move);
+        entry = tt_probe(tt, pos->hash);
+        if (entry) tt_move = entry->best_move;
+    }
+
     /* Syzygy WDL probe. Skips the rest of the subtree when we have a
        definitive result. Constraints:
        - non-root (ply > 0): at the root we use DTZ at the entry point
@@ -344,7 +352,7 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
         np.hash  ^= ZOBRIST_SIDE;
         np.halfmove++;
 
-        int R = 2 + (depth >= 6 ? 1 : 0);
+        int R = 3 + depth / 6;
         ctx->rep_stack[ctx->rep_top++] = np.hash;
         /* prev_move = MOVE_NONE through null search — we didn't actually
            play a move, so it would be wrong to attribute its child cutoffs
@@ -382,11 +390,10 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
     Move quiets_searched[64];
     int  n_quiets_searched = 0;
 
-    /* Frontier futility: at depth==1, if our static eval plus a margin
-       still can't reach alpha, quiet moves are unlikely to help. Computed
-       once outside the loop. */
-    bool futile_frontier = (!is_pv && !in_check && depth == 1
-                            && static_eval + 200 <= alpha);
+    /* Extended futility: at low depths, if static eval plus a depth-scaled
+       margin can't reach alpha, quiet moves are unlikely to help. */
+    bool futile_frontier = (!is_pv && !in_check && depth <= 3
+                            && static_eval + 150 * depth <= alpha);
 
     ctx->rep_stack[ctx->rep_top++] = pos->hash;
 
@@ -398,6 +405,11 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
         bool is_promo   = MOVE_PROMO(m)   != PIECE_NONE;
         bool quiet      = !is_capture && !is_promo;
 
+        /* SEE pruning: skip losing captures at low depth (non-PV). */
+        if (!is_pv && !in_check && is_capture && depth <= 4 && searched > 0) {
+            if (pos_see(pos, m) < -50 * depth) continue;
+        }
+
         /* Late Move Pruning: at low depth, the late quiet moves in a
            well-ordered list are very unlikely to be best. Skip them entirely.
            Threshold: searched >= 3 + depth*depth (so 4 @d1, 7 @d2, 12 @d3,
@@ -408,7 +420,7 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
             continue;
         }
 
-        /* Frontier futility: skip quiet moves that can't plausibly raise
+        /* Extended futility: skip quiet moves that can't plausibly raise
            alpha at the leaf. Don't skip the very first move (we always need
            at least one searched to populate best_move). */
         if (futile_frontier && quiet && searched > 0) {
@@ -444,6 +456,9 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
                     m == ctx->killers[ply][1] ||
                     m == counter)
                     reduction--;
+                int h = ctx->history[pos->side][MOVE_FROM(m)][MOVE_TO(m)];
+                if (h < -1000) reduction++;
+                else if (h > 2000) reduction--;
                 if (reduction < 0)            reduction = 0;
                 if (reduction >= depth - 1)   reduction = depth - 2;
                 if (reduction < 0)            reduction = 0;
@@ -578,7 +593,7 @@ static IdResult run_id(SearchCtx *ctx, const Position *pos, int max_depth,
         long iter_start = ms_now();
         int alpha  = -SEARCH_INF;
         int beta   =  SEARCH_INF;
-        int window = 50;
+        int window = 25;
 
         if (depth >= 4) {
             alpha = prev_score - window;
@@ -749,7 +764,7 @@ void search_init(void) {
     for (int m = 0; m < 64; m++) LMR[0][m] = 0;
     for (int d = 1; d < 64; d++) {
         for (int m = 1; m < 64; m++) {
-            double r  = 0.5 + log((double)d) * log((double)m) / 2.0;
+            double r  = 0.5 + log((double)d) * log((double)m) / 2.25;
             int    ir = (int)r;
             LMR[d][m] = ir < 0 ? 0 : ir;
         }

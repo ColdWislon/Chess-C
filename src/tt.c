@@ -48,7 +48,7 @@ void tt_store(TT *tt, uint64_t key, int depth, int score, Bound bound,
     bool same_pos = (e->xor_key ^ entry_hash(e)) == key;
     bool deeper   = ((int16_t)depth >= e->depth);
     bool stale    = (e->generation != tt->generation);
-    if (same_pos || deeper || stale) {
+    if (same_pos || deeper || (stale && e->depth <= (int16_t)depth + 4)) {
         /* Clamp static_eval into int16 range — evaluate() values fit
            comfortably (~±5000 cp) but defend against future drift. */
         if      (static_eval >  32767) static_eval =  32767;
