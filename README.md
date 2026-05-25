@@ -1,5 +1,7 @@
 # Chess-C
 
+[![build](https://github.com/ColdWislon/Chess-C/actions/workflows/perft.yml/badge.svg)](https://github.com/ColdWislon/Chess-C/actions/workflows/perft.yml)
+
 A classical UCI chess engine written from scratch in C, running 24/7 as **[rpiBot73](https://lichess.org/@/rpiBot73)** on Lichess from a Raspberry Pi 4.
 
 No NNUE, no training data — just bitboards, alpha-beta, and hand-tuned heuristics competing against the bots of Lichess.
