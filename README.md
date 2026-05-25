@@ -120,7 +120,11 @@ A companion web dashboard (port 8080) shows live game status, engine stats, and 
 
 ## Project Philosophy
 
-This engine is a learning project and a live experiment in classical chess programming. Every feature is implemented from first principles — no copy-paste from Stockfish or other engines. The goal isn't to beat the top engines (that requires NNUE + massive compute), but to build the strongest possible classical engine on minimal hardware and see how far hand-crafted heuristics can go.
+This engine is a learning project and a live experiment in classical chess programming. The goal isn't to beat the top engines (that requires NNUE + massive compute), but to build the strongest possible classical engine on minimal hardware and see how far hand-crafted heuristics can go.
+
+## Built with Claude
+
+This engine is developed in collaboration with [Claude](https://claude.ai) (Anthropic). Claude helps with architecture decisions, search/eval improvements, code review, and automated gauntlet testing. The human provides direction, chess knowledge, and final judgment on what ships to production.
 
 ## License
 
