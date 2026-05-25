@@ -1,6 +1,11 @@
 # Chess-C
 
 [![build](https://github.com/ColdWislon/Chess-C/actions/workflows/perft.yml/badge.svg)](https://github.com/ColdWislon/Chess-C/actions/workflows/perft.yml)
+[![C](https://img.shields.io/badge/language-C11-blue)](src/)
+[![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi%204-c51a4a)](https://www.raspberrypi.com/)
+[![Lichess](https://img.shields.io/badge/lichess-rpiBot73-green?logo=lichess)](https://lichess.org/@/rpiBot73)
+[![License](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
+[![Lines of code](https://img.shields.io/badge/lines-5k%20C-informational)](src/)
 
 A classical UCI chess engine written from scratch in C, running 24/7 as **[rpiBot73](https://lichess.org/@/rpiBot73)** on Lichess from a Raspberry Pi 4.
 
