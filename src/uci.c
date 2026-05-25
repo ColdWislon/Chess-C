@@ -48,11 +48,23 @@ static int parse_time(const char *line, const Position *pos,
         alloc = max_safe;
     } else {
         long our_time = (pos->side == WHITE) ? wtime : btime;
+        long opp_time = (pos->side == WHITE) ? btime : wtime;
         long inc      = (pos->side == WHITE) ? winc  : binc;
         if (our_time <= 0) our_time = 10000;
+        if (opp_time <= 0) opp_time = our_time;
         long moves_left = (movestogo > 0) ? movestogo : 30;
         alloc = our_time / moves_left + (inc > 0 ? inc * 3 / 4 : 0);
         alloc = alloc * 9 / 10;
+
+        /* Time pressure bonus: when we have significantly more time than the
+           opponent, spend more to play stronger and maintain the pressure.
+           Scale: up to +50% extra when we have 3x their time. */
+        if (opp_time > 0 && our_time > opp_time * 2) {
+            long ratio = our_time / (opp_time > 0 ? opp_time : 1);
+            if (ratio > 4) ratio = 4;
+            alloc = alloc * (100 + (ratio - 1) * 25) / 100;
+        }
+
         /* Never spend more than half our remaining time on a single move —
            guards against blowing the clock when inc*3/4 swamps our_time at
            low time. min_thinking_time must respect this same ceiling. */
