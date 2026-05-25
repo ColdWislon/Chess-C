@@ -600,6 +600,41 @@ def last_gauntlet_result() -> dict | None:
     }
 
 
+def opponent_stats(recent: list[dict], bot_name: str) -> list[dict]:
+    """Per-opponent W/D/L from recent games. Returns sorted by most played."""
+    bot_low = bot_name.lower()
+    opps: dict[str, dict] = {}
+    for g in recent or []:
+        white_user = (g.get("players", {}).get("white", {}).get("user", {}) or {})
+        black_user = (g.get("players", {}).get("black", {}).get("user", {}) or {})
+        if white_user.get("name", "").lower() == bot_low:
+            bot_color = "white"
+            opp_user = black_user
+            opp_rating = g.get("players", {}).get("black", {}).get("rating")
+        else:
+            bot_color = "black"
+            opp_user = white_user
+            opp_rating = g.get("players", {}).get("white", {}).get("rating")
+        opp_name = opp_user.get("name", "Anonymous")
+        winner = g.get("winner")
+        result = "draw" if not winner else ("win" if winner == bot_color else "loss")
+        tc = g.get("speed", "")
+
+        b = opps.setdefault(opp_name, {"wins": 0, "draws": 0, "losses": 0,
+                                        "games": 0, "rating": None, "last_tc": ""})
+        b["games"] += 1
+        if result == "win": b["wins"] += 1
+        elif result == "loss": b["losses"] += 1
+        else: b["draws"] += 1
+        if opp_rating:
+            b["rating"] = opp_rating
+        b["last_tc"] = tc
+
+    result = [{"name": k, **v} for k, v in opps.items()]
+    result.sort(key=lambda x: -x["games"])
+    return result
+
+
 def rating_history(recent: list[dict], bot_name: str) -> list[dict]:
     """Compute rating progression from recent games (newest first from API).
     Returns a list of {ts, rating, tc, result} oldest-first for sparkline."""
@@ -912,6 +947,7 @@ class Handler(BaseHTTPRequestHandler):
             "rating_history":    rating_history(recent, name),
             "win_rate_by_tc":    win_rate_by_tc(recent, name),
             "last_game_summary": last_game_summary(recent, name, service),
+            "opponent_stats":    opponent_stats(recent, name),
         }
 
 

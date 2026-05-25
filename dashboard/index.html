@@ -250,6 +250,22 @@
 
   .refresh-note { text-align: center; color: var(--muted); font-size: 0.72rem; margin-top: 8px; }
 
+  /* ---- opponent table ---- */
+  .opp-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .opp-table th { text-align: left; font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .opp-table td { padding: 8px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+  .opp-table tr:last-child td { border-bottom: none; }
+  .opp-table tr:hover td { background: rgba(255,255,255,0.03); }
+  .opp-name { font-weight: 600; }
+  .opp-score { display: inline-flex; gap: 4px; align-items: center; }
+  .opp-w { color: var(--green); }
+  .opp-d { color: var(--yellow); }
+  .opp-l { color: var(--red); }
+  .opp-bar { display: inline-flex; height: 6px; width: 60px; border-radius: 3px; overflow: hidden; vertical-align: middle; }
+  .opp-bar .seg-win  { background: var(--green); }
+  .opp-bar .seg-draw { background: var(--yellow); }
+  .opp-bar .seg-loss { background: var(--red); }
+
   /* ---- bot tabs ---- */
   .bot-tabs { display: flex; gap: 6px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
   .bot-tab { background: transparent; color: var(--muted); border: none; padding: 10px 18px; font-size: 0.88rem; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s; font-family: inherit; }
@@ -562,6 +578,12 @@
   <div class="log-body" id="log-body"><p class="idle-msg">Loading…</p></div>
 </div>
 
+<!-- Opponent stats -->
+<div class="games-card" id="opponent-card" style="display:none">
+  <h2>Opponents (last 50 games)</h2>
+  <div id="opponent-table" style="overflow-x:auto"></div>
+</div>
+
 <!-- Recent games -->
 <div class="games-card">
   <h2>Recent games</h2>
@@ -834,6 +856,32 @@ function renderLastGameSummary(data) {
   `;
 }
 
+function renderOpponentStats(data) {
+  const card = document.getElementById('opponent-card');
+  if (!data || data.length === 0) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const rows = data.map(o => {
+    const total = o.games;
+    const wPct = total ? (o.wins / total * 100) : 0;
+    const dPct = total ? (o.draws / total * 100) : 0;
+    const lPct = total ? (o.losses / total * 100) : 0;
+    const ratingStr = o.rating ? `<span style="color:var(--muted);font-size:0.75rem">(${o.rating})</span>` : '';
+    return `<tr>
+      <td><a class="game-link opp-name" href="https://lichess.org/@/${o.name}" target="_blank">${o.name}</a> ${ratingStr}</td>
+      <td>${total}</td>
+      <td><span class="opp-score"><span class="opp-w">${o.wins}</span><span class="opp-d">${o.draws}</span><span class="opp-l">${o.losses}</span></span></td>
+      <td><div class="opp-bar"><div class="seg-win" style="width:${wPct}%"></div><div class="seg-draw" style="width:${dPct}%"></div><div class="seg-loss" style="width:${lPct}%"></div></div></td>
+      <td style="color:${wPct>50?'var(--green)':wPct<50?'var(--red)':'var(--muted)'}">${wPct.toFixed(0)}%</td>
+      <td><span class="tc-tag">${o.last_tc}</span></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('opponent-table').innerHTML = `
+    <table class="opp-table">
+      <thead><tr><th>Opponent</th><th>Games</th><th>W/D/L</th><th></th><th>Win%</th><th>TC</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
 // ---- SSE for real-time engine ----
 let engineSource = null;
 
@@ -980,6 +1028,8 @@ async function refresh() {
   renderWinRateByTC(data.win_rate_by_tc);
   // Last game summary
   renderLastGameSummary(data.last_game_summary);
+  // Opponent stats table
+  renderOpponentStats(data.opponent_stats);
   // Book moves from move history
   if (data.last_game_summary) {
     document.getElementById('eng-book').textContent = String(data.last_game_summary.book_moves || 0);
