@@ -84,7 +84,7 @@ rpiBot73 plays rated rapid and classical on Lichess, challenging other bots when
 ```
 Raspberry Pi 4 (4 cores, 4 GB RAM)
   └── lichess-bot (Python bridge)
-       └���─ chess-engine-c (this project)
+       └── chess-engine-c (this project)
             ├── book.bin (Polyglot opening book)
             └── /home/bertrand/syzygy/ (3-4-5-piece, 939 MB)
 ```
@@ -122,7 +122,7 @@ A companion web dashboard (port 8080) shows live game status, engine stats, and 
 
 ## Project Philosophy
 
-This engine is a learning project and a live experiment in classical chess programming. It started as a previous C engine I wrote by working through the techniques documented on the [Chess Programming Wiki](https://www.chessprogramming.org/Main_Page), and was then rebuilt "vibe coding" style — iterating conversationally with Claude on architecture, search, and eval rather than following a fixed spec. The goal isn't to beat the top engines (that requires NNUE + massive compute), but to build the strongest possible classical engine on minimal hardware and see how far hand-crafted heuristics can go.
+This engine is a learning project and a live experiment in classical chess programming (see [Origin](#chess-c) above for how it came to be). The goal isn't to beat the top engines (that requires NNUE + massive compute), but to build the strongest possible classical engine on minimal hardware and see how far hand-crafted heuristics can go.
 
 ## Built with Claude
 
