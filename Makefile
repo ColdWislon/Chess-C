@@ -4,7 +4,7 @@ LDFLAGS = -pthread -lm
 
 SRC = src/board.c src/tt.c src/eval.c src/search.c \
       src/opening.c src/perft.c src/chat.c src/bench.c \
-      src/syzygy.c src/texel.c src/uci.c src/main.c
+      src/syzygy.c src/texel.c src/nnue.c src/datagen.c src/uci.c src/main.c
 
 # Fathom Syzygy probe (external/tbprobe.c) — single TU, includes tbchess.c.
 # Compiled separately with -w because Fathom's source emits a few -Wunused

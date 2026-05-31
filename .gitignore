@@ -18,6 +18,12 @@ quiet-labeled.epd
 texel-snapshot.txt
 .venv-corpus/
 
+# NNUE: trained nets, checkpoints, self-play data, trainer venv (all regenerable)
+*.nnue
+*.pt
+/data/
+.venv-nnue/
+
 # Python
 __pycache__/
 *.pyc

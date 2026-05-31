@@ -6,6 +6,9 @@
 #include "bench.h"
 #include "syzygy.h"
 #include "texel.h"
+#include "nnue.h"
+#include "datagen.h"
+#include "eval.h"
 #include "build_id.h"
 #include <stdio.h>
 #include <string.h>
@@ -130,6 +133,7 @@ void uci_run(OpeningBook *book) {
             printf("option name SyzygyProbeLimit type spin default 7 min 0 max 7\n");
             printf("option name Syzygy50MoveRule type check default true\n");
             printf("option name SyzygyProbeDepth type spin default 1 min 0 max 100\n");
+            printf("option name EvalFile type string default <none>\n");
             printf("uciok\n");
             fflush(stdout);
 
@@ -191,6 +195,24 @@ void uci_run(OpeningBook *book) {
                     syzygy_set_50_move_rule(use);
                 } else if (strncmp(name, "SyzygyProbeDepth", 16) == 0) {
                     syzygy_set_probe_depth(atoi(val));
+                } else if (strncmp(name, "EvalFile", 8) == 0) {
+                    /* Load an .nnue net. Strip surrounding whitespace; the
+                       sentinel "<none>" (or empty) unloads back to HCE. */
+                    while (*val == ' ') val++;
+                    char path[1024];
+                    size_t n = strlen(val);
+                    while (n > 0 && (val[n-1] == ' ' || val[n-1] == '\t' ||
+                                     val[n-1] == '\r' || val[n-1] == '\n')) n--;
+                    if (n >= sizeof(path)) n = sizeof(path) - 1;
+                    memcpy(path, val, n); path[n] = '\0';
+                    if (n == 0 || strcmp(path, "<none>") == 0) {
+                        nnue_free();
+                        fprintf(stderr, "info string NNUE: unloaded (using HCE)\n");
+                    } else if (!nnue_load(path)) {
+                        fprintf(stderr, "info string NNUE: failed to load %s\n",
+                                path);
+                    }
+                    fflush(stderr);
                 }
             }
 
@@ -362,6 +384,19 @@ void uci_run(OpeningBook *book) {
                 if (strncmp(q, "material", 8) == 0) mode = TEXEL_MODE_MATERIAL;
                 texel_run(path, mode);
             }
+
+        } else if (strcmp(line, "eval") == 0) {
+            /* Print the static eval of the current position (side-to-move POV).
+               Routes through NNUE when a net is loaded — used by the C/Python
+               parity gate (tools/nnue/check_parity.py). */
+            printf("eval %d\n", evaluate(&pos));
+            fflush(stdout);
+
+        } else if (strncmp(line, "datagen", 7) == 0) {
+            /* `datagen <out-path> [games] [depth]` — self-play data generation
+               for NNUE training. CPU-heavy: run on WSL, never alongside a live
+               game (see CLAUDE.md idle check). */
+            datagen_run_cmd(line + 7, &tt);
 
         } else if (strncmp(line, "perft", 5) == 0) {
             int depth = atoi(line + 6);

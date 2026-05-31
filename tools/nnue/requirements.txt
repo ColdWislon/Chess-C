@@ -1,0 +1,7 @@
+# NNUE trainer deps (WSL / any CUDA box). The parity gate (check_parity.py) and
+# features.py need NONE of these — they are pure-python and run on the Pi.
+#
+# Install the CUDA build of torch matching your driver from pytorch.org; the
+# bare "torch" below pulls the default wheel (CPU or CUDA depending on platform).
+torch>=2.0
+numpy>=1.24

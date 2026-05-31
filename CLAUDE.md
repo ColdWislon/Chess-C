@@ -285,9 +285,30 @@ tools/wsl-ab-gauntlet.sh main HEAD                # confirm before commit/deploy
 
 **On a Pi 4, full corpus is slow** — coordinate descent on 778 params × 87k positions is ~30 min/pass. Run on a faster host (WSL = ~10× faster), copy the snapshot back. The texel approach as currently implemented is **mildly to badly counterproductive** on bot-vs-bot corpora — see "Known gaps".
 
+## NNUE (small perspective net)
+
+A `768 → 256 → 1` perspective NNUE pipeline. **Status: scaffolded + format-verified, untrained.** The engine uses NNUE only when a `.nnue` net is loaded (UCI `EvalFile`, env `EVALFILE`, or `./network.nnue` auto-loaded at startup); otherwise it falls back to the hand-crafted PeSTO eval. `evaluate()` routes through `nnue_evaluate()` transparently — search is agnostic.
+
+| Piece | Where |
+|---|---|
+| Spec (arch + quant + file format) — **single source of truth** | `docs/nnue-format.md` |
+| C inference + `.nnue` loader (full-refresh accumulator, int-quantized) | `src/nnue.c/.h` |
+| Self-play data generation (`datagen` UCI cmd) | `src/datagen.c/.h` |
+| WSL PyTorch trainer (dataset/model/train/serialize) | `tools/nnue/` |
+| C↔Python parity gate (pure python, runs on the Pi) | `tools/nnue/check_parity.py` |
+| Workflow docs | `tools/nnue/README.md` |
+
+Conventions: feature index `rel_color*384 + piece*64 + rel_sq` (rel_sq = `sq^56` for the black perspective); side-to-move accumulator concatenated first; quant `QA=255 QB=64 SCALE=400`; `.nnue` magic `CNUE` v1, little-endian.
+
+**Datagen** (CPU-heavy — WSL, or Pi only when idle): `datagen <out> [games] [depth] [seed]` → `<FEN> | <cp> | <result>` lines (quiet, non-check, non-mate positions; cp + result both side-to-move POV). Use distinct seeds to parallelise.
+
+**Parity gate is the contract** — after any change to `src/nnue.c` or `tools/nnue/features.py`, run `python3 tools/nnue/check_parity.py` (no torch needed). It builds a random quantized net and asserts the engine's `eval` matches the Python int path exactly. Must pass before any trained net is meaningful.
+
+**First-net workflow**: `datagen` → `tools/nnue/setup-wsl.sh` + `train.py` on WSL → `check_parity.py` → `setoption EvalFile` → `tools/wsl-ab-gauntlet.sh` vs HCE → deploy via `safe-restart-bot.sh` only if Elo confirms. There's also a new UCI `eval` command (prints static eval of the current position; used by the parity gate).
+
 ## Known gaps
 
-- **No NNUE.** Classical eval ceiling is ~2200–2400 Elo with perfect tuning; NNUE adds ~400+ Elo but requires a training pipeline. On Pi 4 ARM (NEON, no AVX2), realistic NNUE gain is ~+150–300 (vs +400+ on x86) because Pi 4 NPS drops 2–4× under NNUE eval cost.
+- **NNUE: infra scaffolded, no trained net yet.** A small `768→256→1` perspective NNUE pipeline now exists (see "NNUE" section below) — datagen + WSL trainer + C inference + parity gate all landed and verified, but no net has been trained/gauntletted yet, so the engine still ships the hand-crafted eval by default. Classical eval ceiling is ~2200–2400 Elo with perfect tuning; NNUE adds ~400+ Elo on x86 but on Pi 4 ARM (NEON, no int8 dot-product on A72) realistic gain is ~+150–300 because NPS drops 2–4× under NNUE eval cost. Inference is currently full-refresh per node; an incremental accumulator is the key follow-up optimization for the Pi.
 - **6-7-piece tablebases not on disk** (5-piece is ~939 MB; 6-piece would be ~150 GB).
 - **Texel tuner's optimizer is the bottleneck.** Coordinate descent on a noisy bot-game corpus (87k positions, 778 params) reliably overfits. Tested snapshot lost -145 ± 41 Elo on WSL. Two paths to make texel useful: (a) cleaner corpus (Stockfish-vs-Stockfish self-play at depth 12+), or (b) better optimizer (Adam / finite-difference gradient descent). Until one of those, stick to manual targeted changes per PROF signals.
 - **GPU on Pi 4 is not useful** — VideoCore VI is a graphics GPU (~32 GFLOPS, no tensor cores, immature compute stack). Chess search is sequential anyway; GPU dispatch overhead would dominate the eval cost. Only path to neural play on this hardware is NNUE on CPU.

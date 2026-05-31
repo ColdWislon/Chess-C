@@ -4,6 +4,7 @@
    transitions from "stay back" in the middlegame to "centralize" in the
    endgame without any explicit king-walk logic. */
 #include "eval.h"
+#include "nnue.h"
 #include <string.h>
 
 #define PAWN_HASH_SIZE 16384
@@ -298,6 +299,12 @@ static int mobility_score(const Position *pos) {
 }
 
 int evaluate(const Position *pos) {
+    /* When an NNUE net is loaded, it replaces the hand-crafted eval entirely.
+       Both return side-to-move POV centipawns, so search is agnostic to which
+       is active. Falls through to the PeSTO eval below when no net is loaded. */
+    if (nnue_is_loaded())
+        return nnue_evaluate(pos);
+
     int mg = 0, eg = 0;
 
     /* Material + PST, accumulated separately for MG and EG. */

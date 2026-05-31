@@ -2,8 +2,10 @@
 #include "opening.h"
 #include "search.h"
 #include "syzygy.h"
+#include "nnue.h"
 #include "uci.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 #define DEFAULT_SYZYGY_PATH "/home/bertrand/syzygy/"
 
@@ -29,8 +31,20 @@ int main(void) {
         fprintf(stderr, "Syzygy: no tablebase files at %s — running without.\n",
                 DEFAULT_SYZYGY_PATH);
 
+    /* Best-effort NNUE load: env EVALFILE overrides, else ./network.nnue if
+       present. Silent miss → hand-crafted eval. UCI `setoption EvalFile`
+       overrides at any time. */
+    const char *evalfile = getenv("EVALFILE");
+    if (evalfile && *evalfile)
+        nnue_load(evalfile);
+    else
+        nnue_load("network.nnue");
+    if (!nnue_is_loaded())
+        fprintf(stderr, "NNUE: no net loaded — using hand-crafted eval.\n");
+
     uci_run(book);
     syzygy_shutdown();
     book_free(book);
+    nnue_free();
     return 0;
 }
