@@ -7,9 +7,11 @@
 [![License](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
 [![Lines of code](https://img.shields.io/badge/lines-5k%20C-informational)](src/)
 
-A classical UCI chess engine written from scratch in C, running 24/7 as **[rpiBot73](https://lichess.org/@/rpiBot73)** on Lichess from a Raspberry Pi 4.
+A classical UCI chess engine in C, running 24/7 as **[rpiBot73](https://lichess.org/@/rpiBot73)** on Lichess from a Raspberry Pi 4.
 
 No NNUE, no training data — just bitboards, alpha-beta, and hand-tuned heuristics competing against the bots of Lichess.
+
+> **Origin:** This is a "vibe coded" rewrite of an earlier C engine of mine, which was itself built following the [WikiChess](https://www.chessprogramming.org/Main_Page) (Chess Programming Wiki) approach. The current codebase was grown iteratively in collaboration with [Claude](https://claude.ai) — see [Built with Claude](#built-with-claude) below — rather than written from scratch in one pass.
 
 ---
 
@@ -120,7 +122,7 @@ A companion web dashboard (port 8080) shows live game status, engine stats, and 
 
 ## Project Philosophy
 
-This engine is a learning project and a live experiment in classical chess programming. The goal isn't to beat the top engines (that requires NNUE + massive compute), but to build the strongest possible classical engine on minimal hardware and see how far hand-crafted heuristics can go.
+This engine is a learning project and a live experiment in classical chess programming. It started as a previous C engine I wrote by working through the techniques documented on the [Chess Programming Wiki](https://www.chessprogramming.org/Main_Page), and was then rebuilt "vibe coding" style — iterating conversationally with Claude on architecture, search, and eval rather than following a fixed spec. The goal isn't to beat the top engines (that requires NNUE + massive compute), but to build the strongest possible classical engine on minimal hardware and see how far hand-crafted heuristics can go.
 
 ## Built with Claude
 
