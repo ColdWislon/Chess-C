@@ -84,6 +84,8 @@ sudo journalctl -u chess-dashboard -f
 
 `lichess-bot-c.service` is canonical (runs `--config config-c.yml`, account rpiBot73). The legacy `lichess-bot.service` (`config.yml`, MegaBot73) was disabled 2026-05-16 — don't accidentally re-enable it.
 
+**Default bridge (since 2026-06-01) — `asynclio-bot.service` (`enabled` + `active`).** rpiBot73 now runs via Heiaha/asyncLio-bot at `/home/bertrand/asyncLio-bot/`; `lichess-bot-c.service` is `disabled` + stopped (kept as fallback). They share the SAME token and `Conflicts`, so only one runs at a time. CHAT relay + engine-stderr->journal are ported; the dashboard reads both units' journals (`_journal_units` in dashboard/server.py). Revert to lichess-bot: `sudo systemctl disable --now asynclio-bot && sudo systemctl enable --now lichess-bot-c`. Ad-hoc foreground trial: `asyncLio-bot/run-test.sh`.
+
 Dashboard: http://192.168.1.66:8080
 
 ## Don't disturb live games

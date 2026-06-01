@@ -49,10 +49,24 @@ BOTS = {
         "name":      "rpiBot73",
         "engine":    "C",
         "token_env": "LICHESS_TOKEN_RPIBOT73",
-        "service":   "lichess-bot-c",
+        "service":   "asynclio-bot",
     },
 }
 DEFAULT_BOT = "rpibot73"
+
+# asyncLio-bot is an alternative bridge for the SAME rpiBot73 account; only one
+# runs at a time. Read its journal too, so depth/score/PROF keep flowing to the
+# dashboard whichever bridge is currently live.
+ALT_JOURNAL_UNITS = {"lichess-bot-c": ["lichess-bot-c", "asynclio-bot"],
+                     "asynclio-bot": ["asynclio-bot", "lichess-bot-c"]}
+
+
+def _journal_units(service):
+    args = []
+    for unit in ALT_JOURNAL_UNITS.get(service, [service]):
+        args += ["-u", unit]
+    return args
+
 
 
 def _resolve_token(cfg: dict) -> str | None:
@@ -195,7 +209,7 @@ def _journal_cat(service: str) -> str:
     def fetch():
         try:
             return subprocess.check_output(
-                ["journalctl", "-u", service, "-n", "4000", "--no-pager", "-o", "cat"],
+                ["journalctl", *_journal_units(service), "-n", "4000", "--no-pager", "-o", "cat"],
                 stderr=subprocess.DEVNULL, timeout=3, text=True,
             )
         except Exception:
@@ -209,7 +223,7 @@ def _journal_iso(service: str) -> str:
     def fetch():
         try:
             return subprocess.check_output(
-                ["journalctl", "-u", service, "-n", "500", "--no-pager", "-o", "short-iso"],
+                ["journalctl", *_journal_units(service), "-n", "500", "--no-pager", "-o", "short-iso"],
                 stderr=subprocess.DEVNULL, timeout=3, text=True,
             )
         except Exception:
@@ -856,7 +870,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
         proc = subprocess.Popen(
-            ["journalctl", "-u", service, "-f", "-o", "cat", "-n", "0"],
+            ["journalctl", *_journal_units(service), "-f", "-o", "cat", "-n", "0"],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         )
         try:
