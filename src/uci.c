@@ -405,6 +405,15 @@ void uci_run(OpeningBook *book) {
             printf("nodes %llu\n", (unsigned long long)nodes);
             fflush(stdout);
 
+        } else if (strncmp(line, "nnuetest", 8) == 0) {
+            /* `nnuetest <depth>` — walk a perft tree and verify that the
+               incremental accumulator update produces the same bytes as a
+               full refresh on every move. Depth 3-4 covers enough move
+               types to be a strong correctness check. */
+            int depth = atoi(line + 8);
+            if (depth < 1) depth = 3;
+            (void)nnue_acc_self_test(&pos, depth);
+
         } else if (strcmp(line, "quit") == 0) {
             break;
         }

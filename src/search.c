@@ -5,6 +5,7 @@
 #include "search.h"
 #include "eval.h"
 #include "syzygy.h"
+#include "nnue.h"
 #include <time.h>
 #include <string.h>
 #include <stdio.h>
@@ -78,6 +79,13 @@ typedef struct {
 
     int      eval_stack[MAX_PLY + 1];
 
+    /* Per-ply NNUE accumulator stack. Refreshed at the root, then advanced
+       incrementally on each pos_do_move via search_do_move(). Active only
+       when nnue_is_loaded(); when no net is loaded the stack is unused.
+       Sized MAX_PLY+2 so the ply+1 write at the deepest legal ply is in
+       bounds (matches the pv buffer's headroom pattern). */
+    NNUEAcc  acc_stack[MAX_PLY + 2];
+
     /* Principal Variation: pv[ply] is the best line found from that ply
        onward, length pv_len[ply]. After a PV node selects move m, we copy
        child's pv into ours after the leading m. Sized MAX_PLY+1 so that the
@@ -85,6 +93,26 @@ typedef struct {
     Move     pv[MAX_PLY + 1][MAX_PLY];
     int      pv_len[MAX_PLY + 1];
 } SearchCtx;
+
+/* Wrapper that does pos_do_move and keeps the per-ply accumulator stack in
+   sync. ply is the current ply BEFORE the move (so the child runs at ply+1
+   and reads acc_stack[ply+1]). */
+static inline void search_do_move(SearchCtx *ctx, int ply,
+                                  const Position *pos, Move m, Position *child) {
+    pos_do_move(pos, m, child);
+    if (nnue_is_loaded() && ply + 1 < MAX_PLY + 2)
+        nnue_acc_advance(&ctx->acc_stack[ply + 1],
+                         &ctx->acc_stack[ply], pos, m);
+}
+
+/* Search hot-path eval. Uses the cached per-ply accumulator when NNUE is
+   loaded — O(N) dot product, no per-piece sum — falls back to the hand-
+   crafted eval() otherwise. */
+static inline int search_eval(SearchCtx *ctx, int ply, const Position *pos) {
+    if (nnue_is_loaded())
+        return nnue_evaluate_acc(&ctx->acc_stack[ply], pos->side);
+    return evaluate(pos);
+}
 
 static long ms_now(void) {
     struct timespec ts;
@@ -164,7 +192,7 @@ static int quiescence(const Position *pos, int alpha, int beta,
     check_time(ctx);
     if (ctx->stopped) return 0;
 
-    if (ply >= MAX_PLY) return evaluate(pos);
+    if (ply >= MAX_PLY) return search_eval(ctx, MAX_PLY, pos);
 
     bool in_check = pos_in_check(pos);
     int stand_pat = -SEARCH_INF;
@@ -177,7 +205,7 @@ static int quiescence(const Position *pos, int alpha, int beta,
         n = pos_gen_moves(pos, moves);
         if (n == 0) return -SEARCH_MATE + ply;
     } else {
-        stand_pat = evaluate(pos);
+        stand_pat = search_eval(ctx, ply, pos);
         if (stand_pat >= beta) return beta;
         if (stand_pat > alpha) alpha = stand_pat;
         /* Pseudo-captures only — we'll SEE-prune before paying legality cost,
@@ -217,7 +245,7 @@ static int quiescence(const Position *pos, int alpha, int beta,
         }
 
         Position child;
-        pos_do_move(pos, m, &child);
+        search_do_move(ctx, ply, pos, m, &child);
 
         /* Inline legality filter — only for the non-in-check path, since
            the in-check branch generated already-legal moves. Doing this
@@ -266,7 +294,7 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
     /* Hard ply cap: with check extensions a pathological perpetual-check tree
        could push ply past MAX_PLY, OOB-ing per-ply arrays (killers, pv).
        Bail out with static eval — quiescence does the same. */
-    if (ply >= MAX_PLY) return evaluate(pos);
+    if (ply >= MAX_PLY) return search_eval(ctx, MAX_PLY, pos);
 
     bool is_pv    = (beta - alpha) > 1;
     bool in_check = pos_in_check(pos);
@@ -338,7 +366,7 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
     /* Reuse the static eval cached in TT when we have one — saves a full
        evaluate() pass on revisits. The TT XOR-key check upstream guarantees
        the entry matches this position and isn't torn. */
-    int static_eval = entry ? entry->static_eval : evaluate(pos);
+    int static_eval = entry ? entry->static_eval : search_eval(ctx, ply, pos);
     ctx->eval_stack[ply] = static_eval;
     bool improving = (ply >= 2 && static_eval > ctx->eval_stack[ply - 2]);
 
@@ -373,6 +401,11 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
 
         int R = 3 + depth / 6;
         ctx->rep_stack[ctx->rep_top++] = np.hash;
+        /* Null move doesn't move any piece — every perspective accumulator
+           is unchanged, only side-to-move flips (which nnue_evaluate_acc picks
+           up via np.side). Propagate the accumulator unchanged to ply+1. */
+        if (nnue_is_loaded() && ply + 1 < MAX_PLY + 2)
+            ctx->acc_stack[ply + 1] = ctx->acc_stack[ply];
         /* prev_move = MOVE_NONE through null search — we didn't actually
            play a move, so it would be wrong to attribute its child cutoffs
            to a "counter-move" of anything. */
@@ -472,7 +505,7 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
             quiets_searched[n_quiets_searched++] = m;
 
         Position child;
-        pos_do_move(pos, m, &child);
+        search_do_move(ctx, ply, pos, m, &child);
 
         /* Singular extension: give the TT move 1 extra ply if it was
            determined to be singular (much better than alternatives). */
@@ -604,6 +637,12 @@ typedef struct {
 static IdResult run_id(SearchCtx *ctx, const Position *pos, int max_depth,
                        TT *tt, bool log_to_stderr) {
     IdResult r = { MOVE_NONE, 0, 0, false };
+
+    /* Seed the per-ply accumulator stack at ply 0. Subsequent plies are
+       advanced incrementally by search_do_move(). When no NNUE is loaded,
+       acc_stack stays untouched (search_eval routes to the HCE path). */
+    if (nnue_is_loaded())
+        nnue_acc_refresh(&ctx->acc_stack[0], pos);
 
     /* Pre-seed root_best with the first legal move so we never return
        MOVE_NONE even if the search is interrupted before depth 1 completes. */
