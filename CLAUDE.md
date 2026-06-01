@@ -76,13 +76,13 @@ quit
 ## Services
 
 ```bash
-sudo systemctl status lichess-bot-c chess-dashboard
-sudo systemctl restart lichess-bot-c
-sudo journalctl -u lichess-bot-c -f      # live engine logs (depth/score/nodes/nps/seldepth)
+sudo systemctl status asynclio-bot chess-dashboard
+sudo systemctl restart asynclio-bot
+sudo journalctl -u asynclio-bot -f       # live engine logs (depth/score/nodes/nps/seldepth + NNUE load)
 sudo journalctl -u chess-dashboard -f
 ```
 
-`lichess-bot-c.service` is canonical (runs `--config config-c.yml`, account rpiBot73). The legacy `lichess-bot.service` (`config.yml`, MegaBot73) was disabled 2026-05-16 — don't accidentally re-enable it.
+`asynclio-bot.service` is canonical as of 2026-06-01 (custom async bridge at `/home/bertrand/asyncLio-bot`, launched via `service-run.sh`, account rpiBot73). It reads the `lip_` token from `/home/bertrand/lichess-bot/config-c.yml` and runs the same engine binary (`/home/bertrand/chess-c/chess-engine-c`); the engine is spawned **per-game** with `uci_options` (Threads/Hash/EvalFile) from `/home/bertrand/asyncLio-bot/config.yml`, stderr inherited to the journal. The previous `lichess-bot-c.service` (python-chess `lichess-bot.py --config config-c.yml`) is now disabled+inactive — asynclio-bot `Conflicts=lichess-bot-c` (one event stream per token). The older `lichess-bot.service` (`config.yml`, MegaBot73) was disabled 2026-05-16 — don't re-enable either. **`tools/safe-restart-bot.sh` still targets the retired `lichess-bot-c`** — restart `asynclio-bot` directly after an idle-check.
 
 **Default bridge (since 2026-06-01) — `asynclio-bot.service` (`enabled` + `active`).** rpiBot73 now runs via Heiaha/asyncLio-bot at `/home/bertrand/asyncLio-bot/`; `lichess-bot-c.service` is `disabled` + stopped (kept as fallback). They share the SAME token and `Conflicts`, so only one runs at a time. CHAT relay + engine-stderr->journal are ported; the dashboard reads both units' journals (`_journal_units` in dashboard/server.py). Revert to lichess-bot: `sudo systemctl disable --now asynclio-bot && sudo systemctl enable --now lichess-bot-c`. Ad-hoc foreground trial: `asyncLio-bot/run-test.sh`.
 
@@ -92,7 +92,7 @@ Dashboard: http://192.168.1.66:8080
 
 The Pi has 4 cores. The running engine subprocess uses all of them under `Threads=4`. Restarting the service OR running CPU-heavy benchmarks/matches alongside a live game will hurt — or outright abandon — that game. **Before any of the following, confirm rpiBot73 is idle:**
 
-- `sudo systemctl restart lichess-bot-c` (kills the engine subprocess → forfeits the ongoing game)
+- `sudo systemctl restart asynclio-bot` (kills the engine subprocess → forfeits the ongoing game)
 - `make bench-compare`, `make bench-compare-timed`, `make bench` (competes for the same 4 cores → live engine times out / blunders)
 - `python3 ladder_match.py` / `match.py` / `compare.py` (legacy A/B harnesses)
 - `python3 /tmp/lmr-gauntlet.py` / `/tmp/texel-gauntlet.py` (Pi self-play wrappers around match.py)
@@ -289,12 +289,12 @@ tools/wsl-ab-gauntlet.sh main HEAD                # confirm before commit/deploy
 
 ## NNUE (small perspective net)
 
-A `768 → 256 → 1` perspective NNUE pipeline. **Status: scaffolded + format-verified, untrained.** The engine uses NNUE only when a `.nnue` net is loaded (UCI `EvalFile`, env `EVALFILE`, or `./network.nnue` auto-loaded at startup); otherwise it falls back to the hand-crafted PeSTO eval. `evaluate()` routes through `nnue_evaluate()` transparently — search is agnostic.
+A `768 → 256 → 1` perspective NNUE pipeline. **Status: trained + deployed.** A λ=1.0 (pure Stockfish-eval target) net beats the hand-crafted PeSTO eval by **+207 ±52 Elo** (200-game WSL gauntlet vs HCE) and ships in production (`network.nnue`, loaded on rpiBot73). The engine uses NNUE only when a `.nnue` net is loaded (UCI `EvalFile`, env `EVALFILE`, or `./network.nnue` auto-loaded at startup); otherwise it falls back to the hand-crafted PeSTO eval. `evaluate()` routes through `nnue_evaluate()` transparently — search is agnostic.
 
 | Piece | Where |
 |---|---|
 | Spec (arch + quant + file format) — **single source of truth** | `docs/nnue-format.md` |
-| C inference + `.nnue` loader (full-refresh accumulator, int-quantized) | `src/nnue.c/.h` |
+| C inference + `.nnue` loader (incremental accumulator, int-quantized) | `src/nnue.c/.h` |
 | Self-play data generation (`datagen` UCI cmd) | `src/datagen.c/.h` |
 | WSL PyTorch trainer (dataset/model/train/serialize) | `tools/nnue/` |
 | C↔Python parity gate (pure python, runs on the Pi) | `tools/nnue/check_parity.py` |
@@ -304,13 +304,15 @@ Conventions: feature index `rel_color*384 + piece*64 + rel_sq` (rel_sq = `sq^56`
 
 **Datagen** (CPU-heavy — WSL, or Pi only when idle): `datagen <out> [games] [depth] [seed]` → `<FEN> | <cp> | <result>` lines (quiet, non-check, non-mate positions; cp + result both side-to-move POV). Use distinct seeds to parallelise.
 
+**Incremental accumulator** (the search hot path): `nnue_acc_refresh()` builds an `NNUEAcc` from scratch (used at root); `nnue_acc_advance()` derives the post-move accumulator from the pre-move one in O(touched features) (≤4 per move); `nnue_evaluate()` is the slow refresh+eval fallback. `nnue_acc_self_test()` asserts advance==refresh byte-for-byte over a perft tree — the in-engine correctness contract for the accumulator. Gauntlet-confirmed identical in strength to full-refresh (perf-only change).
+
 **Parity gate is the contract** — after any change to `src/nnue.c` or `tools/nnue/features.py`, run `python3 tools/nnue/check_parity.py` (no torch needed). It builds a random quantized net and asserts the engine's `eval` matches the Python int path exactly. Must pass before any trained net is meaningful.
 
-**First-net workflow**: `datagen` → `tools/nnue/setup-wsl.sh` + `train.py` on WSL → `check_parity.py` → `setoption EvalFile` → `tools/wsl-ab-gauntlet.sh` vs HCE → deploy via `safe-restart-bot.sh` only if Elo confirms. There's also a new UCI `eval` command (prints static eval of the current position; used by the parity gate).
+**Net workflow**: `datagen` → Stockfish-relabel the FENs (`tools/nnue/stockfish-relabel.sh`) → `tools/nnue/setup-wsl.sh` + `train.py --lambda 1.0` on WSL → `check_parity.py` → `setoption EvalFile` → `tools/nnue/nnue-vs-hce-gauntlet.sh` vs HCE → deploy only if Elo confirms. The two levers that produced the shipped +207 net: Stockfish relabeling of training targets (+90) and a pure-eval target `--lambda 1.0` (drops the noisy self-play game-result term, +231). Deeper SF labels (depth 12 vs 10) gave **no** further gain. There's also a UCI `eval` command (prints static eval of the current position; used by the parity gate). **Deploy target is the `asyncLio-bot` bridge** (see Services) — `tools/safe-restart-bot.sh` targets the retired `lichess-bot-c`, so restart `asynclio-bot` directly after an idle-check.
 
 ## Known gaps
 
-- **NNUE: infra scaffolded, no trained net yet.** A small `768→256→1` perspective NNUE pipeline now exists (see "NNUE" section below) — datagen + WSL trainer + C inference + parity gate all landed and verified, but no net has been trained/gauntletted yet, so the engine still ships the hand-crafted eval by default. Classical eval ceiling is ~2200–2400 Elo with perfect tuning; NNUE adds ~400+ Elo on x86 but on Pi 4 ARM (NEON, no int8 dot-product on A72) realistic gain is ~+150–300 because NPS drops 2–4× under NNUE eval cost. Inference is currently full-refresh per node; an incremental accumulator is the key follow-up optimization for the Pi.
+- **NNUE: trained + deployed (+207 Elo vs HCE), incremental accumulator landed.** The `768→256→1` net ships in production on rpiBot73 (see "NNUE" section). Classical eval ceiling was ~2200–2400 Elo; the NNUE net measured +207 ±52 over HCE at fixed 0.5s/move on x86, and the incremental accumulator keeps Pi NPS healthy enough that the gain carries to ARM. Remaining strength levers (untested): more self-play data volume/diversity, a wider net (raises Pi eval cost), or training data from stronger self-play. Deeper Stockfish labels (depth 12 vs 10) were tested and gave **no** gain — not a lever.
 - **6-7-piece tablebases not on disk** (5-piece is ~939 MB; 6-piece would be ~150 GB).
 - **Texel tuner's optimizer is the bottleneck.** Coordinate descent on a noisy bot-game corpus (87k positions, 778 params) reliably overfits. Tested snapshot lost -145 ± 41 Elo on WSL. Two paths to make texel useful: (a) cleaner corpus (Stockfish-vs-Stockfish self-play at depth 12+), or (b) better optimizer (Adam / finite-difference gradient descent). Until one of those, stick to manual targeted changes per PROF signals.
 - **GPU on Pi 4 is not useful** — VideoCore VI is a graphics GPU (~32 GFLOPS, no tensor cores, immature compute stack). Chess search is sequential anyway; GPU dispatch overhead would dominate the eval cost. Only path to neural play on this hardware is NNUE on CPU.
