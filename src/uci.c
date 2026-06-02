@@ -319,6 +319,7 @@ void uci_run(OpeningBook *book) {
                     .hash_mb         = tt.mb,
                     .tb_largest      = syzygy_largest(),
                     .book_loaded     = (book != NULL),
+                    .nnue_loaded     = nnue_is_loaded(),
                 };
                 char chat_buf[200];
                 if (chat_build(&cc, chat_buf, sizeof(chat_buf))) {

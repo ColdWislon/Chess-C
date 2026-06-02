@@ -58,6 +58,11 @@ static int feature_line(const ChatContext *ctx, int slot,
         case 3:
             if (ctx->was_book_move)
                 snprintf(out, out_size, "still in polyglot opening book");
+            else if (ctx->nnue_loaded)
+                snprintf(out, out_size,
+                         ctx->book_loaded
+                             ? "NNUE eval (768->256->1), polyglot book on the shelf"
+                             : "NNUE eval: 768->256->1 perspective net");
             else if (ctx->book_loaded)
                 snprintf(out, out_size,
                          "PeSTO tapered eval, polyglot book on the shelf");
@@ -96,8 +101,9 @@ int chat_build(const ChatContext *ctx, char *out, int out_size) {
             tb[0] = '\0';
 
         snprintf(out, out_size,
-                 "engine ready, build %s, PVS + null-move + LMR%s, %dMB hash%s%s",
+                 "engine ready, build %s, %s eval, PVS + null-move + LMR%s, %dMB hash%s%s",
                  BUILD_GIT_SHA,
+                 ctx->nnue_loaded ? "NNUE" : "PeSTO",
                  smp,
                  ctx->hash_mb,
                  tb,

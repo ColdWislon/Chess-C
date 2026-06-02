@@ -36,6 +36,7 @@ typedef struct {
     int  hash_mb;        /* TT size in MB */
     int  tb_largest;     /* syzygy_largest(); 0 if no tables loaded */
     bool book_loaded;    /* whether main.c's book pointer was non-NULL */
+    bool nnue_loaded;    /* whether an .nnue net is loaded (else HCE/PeSTO) */
 } ChatContext;
 
 /* Build a single chat line for the given move/score context.
