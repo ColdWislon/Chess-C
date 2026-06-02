@@ -1,44 +1,107 @@
 {
-  "build_date": "2026-05-17",
-  "version": "2364052 (last 20 commits)",
-  "summary": "search/tt/board: cache static eval in TT + prefetch magic tables",
+  "build_date": "2026-06-02",
+  "version": "8e3c33e (last 20 commits)",
+  "summary": "chat: advertise NNUE eval in lichess greeting + feature rotation",
   "kept": [
     {
-      "name": "cache static eval in TT + prefetch magic tables  [2364052]",
-      "kind": "search-efficiency",
-      "impact": "Two cumulative wins, behavior-neutral (identical node counts before",
-      "ab_result": "+2.07% wall time; +1.7% nodes; +3.5% NPS for the engine binary; search tree changed"
-    },
-    {
-      "name": "counter-move heuristic  [dfca1e3]",
-      "kind": "search-efficiency",
-      "impact": "After every quiet beta-cutoff, record \"this is the move that refuted",
-      "ab_result": "+0.16% noise; +1 ply"
-    },
-    {
-      "name": "bench JSON output, dashboard caching, idle-wait, make book, perft CI, safe-restart helper  [256b981]",
+      "name": "advertise NNUE eval in lichess greeting + feature rotation  [8e3c33e]",
       "kind": "quality",
-      "impact": "A. bench_compare.sh now writes last-bench.json on success"
+      "impact": "The chat layer still claimed \"PeSTO tapered eval\" everywhere, but"
     },
     {
-      "name": "Fix Polyglot book lookup; nightly Stockfish gauntlet; dashboard book-exit badge + gauntlet parser rewrite  [4091afc]",
-      "kind": "quality",
-      "impact": "Engine \u2014 Polyglot book bug (`src/opening.c`):"
-    },
-    {
-      "name": "untrack generated src/build_id.h  [8a30f9f]",
-      "kind": "quality",
-      "impact": "The previous commit accidentally tracked src/build_id.h. Root cause:"
-    },
-    {
-      "name": "system + power + per-game charts + repertoire engine: build SHA + PV emission  [c9bd071]",
+      "name": "sync CLAUDE.md to consolidated asynclio-bot bridge paragraph  [bb6e224]",
       "kind": "ergonomics",
-      "impact": "Engine:"
+      "impact": "Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
     },
     {
-      "name": "chess-c UCI engine + dashboard  [951b851]",
+      "name": "sync CLAUDE.md with shipped NNUE + asynclio-bot bridge  [6245867]",
+      "kind": "ergonomics",
+      "impact": "NNUE section/table/known-gaps now match the source and deployed reality:"
+    },
+    {
+      "name": "\u03bb=1.0 SF-eval net beats HCE by +207 Elo  [c9d42e5]",
       "kind": "quality",
-      "impact": "C engine running as rpiBot73 on lichess via lichess-bot. Bitboards with"
+      "impact": "Trained the 768->256->1 perspective net on Stockfish-relabeled self-play"
+    },
+    {
+      "name": "variant binary + nightly gauntlets/ output  [57c9790]",
+      "kind": "quality",
+      "impact": "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
+    },
+    {
+      "name": "mission-control redesign (theme tokens, layout rewrite)  [640fc62]",
+      "kind": "ergonomics",
+      "impact": "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
+    },
+    {
+      "name": "read both bridge units' journals; point live service at asynclio-bot  [33b948b]",
+      "kind": "ergonomics",
+      "impact": "rpiBot73 can now run via either lichess-bot-c or the new asynclio-bot bridge"
+    },
+    {
+      "name": "add small 768->256->1 perspective NNUE pipeline  [eb2339b]",
+      "kind": "quality",
+      "impact": "Scaffolds an end-to-end NNUE path, format-verified but untrained \u2014 the"
+    },
+    {
+      "name": "fix mojibake in bot stack tree, de-duplicate origin note  [29e7f24]",
+      "kind": "quality",
+      "impact": "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
+    },
+    {
+      "name": "explain vibe-coded origin from prior WikiChess-based C engine  [6f28378]",
+      "kind": "quality",
+      "impact": "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
+    },
+    {
+      "name": "opponent stats table (W/D/L per bot, win%, rating, bar)  [20c1578]",
+      "kind": "ergonomics",
+      "impact": "dashboard: opponent stats table (W/D/L per bot, win%, rating, bar)"
+    },
+    {
+      "name": "credit Claude as development collaborator  [a0e47d8]",
+      "kind": "quality",
+      "impact": "README: credit Claude as development collaborator"
+    },
+    {
+      "name": "add MIT LICENSE file  [5328466]",
+      "kind": "quality",
+      "impact": "add MIT LICENSE file"
+    },
+    {
+      "name": "add language, platform, lichess, license, LOC badges  [b6ed528]",
+      "kind": "quality",
+      "impact": "README: add language, platform, lichess, license, LOC badges"
+    },
+    {
+      "name": "bump actions/checkout v4 \u2192 v5 (Node.js 24)  [a7718ab]",
+      "kind": "ergonomics",
+      "impact": "ci: bump actions/checkout v4 \u2192 v5 (Node.js 24)"
+    },
+    {
+      "name": "add CI build badge  [e033b46]",
+      "kind": "quality",
+      "impact": "README: add CI build badge"
+    },
+    {
+      "name": "spend more time when opponent's clock is low  [f0abc9a]",
+      "kind": "quality",
+      "impact": "When we have >2x the opponent's remaining time, allocate up to 50% more"
+    },
+    {
+      "name": "PROF metrics, rating sparkline, win-rate by TC, last game summary, TB/book stats  [24d929b]",
+      "kind": "ergonomics",
+      "impact": "5 new dashboard features:"
+    },
+    {
+      "name": "razoring, rook open file, delta pruning, improving, king danger  [eb2faba]",
+      "kind": "search-efficiency",
+      "impact": "Pi gauntlet (40 games, 20s/side): +17 Elo +/-112, LOS 69%"
+    },
+    {
+      "name": "pawn hash table, singular extensions, LMR bad captures  [e80a96c]",
+      "kind": "search-efficiency",
+      "impact": "Pi gauntlet (40 games, 20s/side): +26 Elo +/-112, LOS 75.4%"
     }
   ],
   "rejected": []
