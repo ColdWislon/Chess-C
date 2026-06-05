@@ -540,6 +540,11 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
                     else if (h > 2000) reduction--;
                 }
                 if (bad_cap) reduction++;
+                /* Static eval falling (not improving) → late quiets are even
+                   less likely to help; reduce one extra ply. `improving` is
+                   already computed for RFP/LMP at this node. Targets the very
+                   low lmr_research rate (LMR was too conservative). */
+                if (!improving) reduction++;
                 if (reduction < 0)            reduction = 0;
                 if (reduction >= depth - 1)   reduction = depth - 2;
                 if (reduction < 0)            reduction = 0;
