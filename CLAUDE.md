@@ -64,6 +64,13 @@ used by `board.h::popcount64`. Keep the `-march=native` default on x86 WSL
 gauntlet hosts. Profile any flag change with `make bench-compare BENCH_DEPTH=10`
 **on the Pi** before deploying.
 
+`make pgo` does a profile-guided build (instrument → run the in-repo `bench`
+→ recompile with `-fprofile-use`), usually a few % NPS over `release`. It
+honors the same `ARCH`/`LTO` knobs — on the Pi 4: `make pgo ARCH="-mcpu=cortex-a72"`.
+Profile data lands in `pgo-data/` (gitignored); `make clean` removes it.
+`make bench-compare` against a plain `make release` baseline **on the Pi** to
+confirm the gain before deploying.
+
 `src/poly_keys.h` is checked in (canonical 781 Polyglot constants). Regenerate with:
 ```bash
 python3 tools/gen_poly_keys.py > src/poly_keys.h

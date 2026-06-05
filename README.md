@@ -70,6 +70,14 @@ make release ARCH="-mcpu=cortex-a72"   # canonical Pi 4 build
 make release LTO=                      # disable link-time optimization
 ```
 
+For maximum throughput, `make pgo` does a profile-guided build (instrument →
+run the in-repo bench → recompile with the profile), typically a few % NPS on
+top of `release`. It honors the same `ARCH`/`LTO` knobs:
+
+```bash
+make pgo ARCH="-mcpu=cortex-a72"       # PGO build for the Pi 4
+```
+
 Requires GCC with C11 support and pthreads. Targets ARM (aarch64) on Pi but builds on any Linux/macOS with:
 
 ```bash

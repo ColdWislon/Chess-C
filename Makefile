@@ -51,6 +51,33 @@ release: src/build_id.h $(SRC) $(FATHOM_OBJ)
 debug: src/build_id.h $(SRC) $(FATHOM_OBJ)
 	$(CC) $(CFLAGS) -O0 -g $(SRC) $(FATHOM_OBJ) -o chess-engine-c-dbg $(LDFLAGS)
 
+# ── Profile-Guided Optimization ────────────────────────────────────
+# Two-stage build on top of the normal release flags ($(OPT)): build an
+# instrumented binary, run the in-repo bench to emit a real profile, then
+# recompile using it so GCC lays out the hot search/movegen/eval branches
+# from an actual run. On chess engines this typically buys a few % NPS.
+# Honors ARCH/LTO like `release` — for the Pi 4:
+#     make pgo ARCH="-mcpu=cortex-a72"
+# Then confirm the gain on the Pi:  make bench-compare BENCH_DEPTH=10
+# (snapshot a plain `make release` as the baseline first).
+PGO_DIR    = pgo-data
+PGO_DEPTH ?= 12
+
+pgo: src/build_id.h $(SRC) $(FATHOM_OBJ)
+	@echo "── PGO 1/3: instrumented build (-fprofile-generate) ──"
+	@mkdir -p $(PGO_DIR)
+	@rm -f $(PGO_DIR)/*.gcda
+	$(CC) $(CFLAGS) $(OPT) -fprofile-generate -fprofile-dir=$(PGO_DIR) \
+		$(SRC) $(FATHOM_OBJ) -o chess-engine-c $(LDFLAGS)
+	@echo "── PGO 2/3: gathering profile (bench depth $(PGO_DEPTH)) ──"
+	@printf 'bench $(PGO_DEPTH)\nquit\n' | ./chess-engine-c >/dev/null
+	@echo "── PGO 3/3: optimized rebuild (-fprofile-use) ──"
+	$(CC) $(CFLAGS) $(OPT) -fprofile-use -fprofile-correction \
+		-fprofile-dir=$(PGO_DIR) -Wno-missing-profile \
+		$(SRC) $(FATHOM_OBJ) -o chess-engine-c $(LDFLAGS)
+	@python3 tools/gen_build_info.py >/dev/null 2>&1 || true
+	@echo "── PGO build complete → ./chess-engine-c ──"
+
 # src/poly_keys.h is checked in (the canonical 781 Polyglot constants).
 # Regenerate with: python3 tools/gen_poly_keys.py > src/poly_keys.h
 
@@ -93,6 +120,8 @@ bench-compare-timed: release
 
 clean:
 	rm -f chess-engine-c chess-engine-c-dbg chess-engine-c.baseline src/build_id.h $(FATHOM_OBJ)
+	rm -rf $(PGO_DIR)
+	rm -f *.gcno *.gcda src/*.gcno src/*.gcda
 
 # ── Opening book ──────────────────────────────────────────────────
 # book.bin is gitignored (re-downloadable, ~5 MB). `make book` fetches it
@@ -143,4 +172,4 @@ quiet-labeled.epd: $(CORPUS_VENV)/bin/python
 	@$(CORPUS_VENV)/bin/python tools/gen-corpus.py --user "$(CORPUS_USER)" --max $(CORPUS_GAMES) --out quiet-labeled.epd
 	@echo "quiet-labeled.epd: $$(wc -l < quiet-labeled.epd) positions, $$(du -h quiet-labeled.epd | cut -f1)"
 
-.PHONY: release debug test clean bench bench-timed bench-baseline bench-compare bench-compare-timed book build-info corpus FORCE
+.PHONY: release debug pgo test clean bench bench-timed bench-baseline bench-compare bench-compare-timed book build-info corpus FORCE
