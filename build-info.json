@@ -1,8 +1,28 @@
 {
   "build_date": "2026-06-05",
-  "version": "b9476db (last 20 commits)",
-  "summary": "chat: report ponder hits in lichess chat",
+  "version": "dbde7ce (last 20 commits)",
+  "summary": "uci: emit `bestmove <best> ponder <reply>` so the GUI actually ponders",
   "kept": [
+    {
+      "name": "emit `bestmove <best> ponder <reply>` so the GUI actually ponders  [dbde7ce]",
+      "kind": "ergonomics",
+      "impact": "The engine handled go ponder/ponderhit/stop but never advertised WHAT to"
+    },
+    {
+      "name": "reconcile CLAUDE.md with asynclio-bot-only infra + pondering  [8669546]",
+      "kind": "ergonomics",
+      "impact": "lichess-bot-c was removed; asynclio-bot is the sole bridge with ponder"
+    },
+    {
+      "name": "target asynclio-bot bridge (lichess-bot-c removed)  [220b208]",
+      "kind": "quality",
+      "impact": "Production consolidated onto asynclio-bot; the lichess-bot-c systemd unit"
+    },
+    {
+      "name": "regenerate for b9476db (pondering + ponder chat)  [564f6e7]",
+      "kind": "ergonomics",
+      "impact": "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
+    },
     {
       "name": "report ponder hits in lichess chat  [b9476db]",
       "kind": "quality",
@@ -82,26 +102,6 @@
       "name": "add MIT LICENSE file  [5328466]",
       "kind": "quality",
       "impact": "add MIT LICENSE file"
-    },
-    {
-      "name": "add language, platform, lichess, license, LOC badges  [b6ed528]",
-      "kind": "quality",
-      "impact": "README: add language, platform, lichess, license, LOC badges"
-    },
-    {
-      "name": "bump actions/checkout v4 \u2192 v5 (Node.js 24)  [a7718ab]",
-      "kind": "ergonomics",
-      "impact": "ci: bump actions/checkout v4 \u2192 v5 (Node.js 24)"
-    },
-    {
-      "name": "add CI build badge  [e033b46]",
-      "kind": "quality",
-      "impact": "README: add CI build badge"
-    },
-    {
-      "name": "spend more time when opponent's clock is low  [f0abc9a]",
-      "kind": "quality",
-      "impact": "When we have >2x the opponent's remaining time, allocate up to 50% more"
     }
   ],
   "rejected": []
