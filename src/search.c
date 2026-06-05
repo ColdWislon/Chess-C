@@ -55,12 +55,13 @@ typedef struct {
     uint64_t see_qprunes;    /* qsearch SEE-based capture skips */
     uint64_t asp_widens;     /* aspiration window widenings this search */
 
-    long     deadline_ms;
     bool     stopped;
 
-    /* SMP coordination: when any thread sets this, all threads exit at the
-       next check_time poll. NULL is valid (single-threaded). */
-    atomic_bool *global_stop;
+    /* Shared deadline + stop flag for this search. All workers point at the
+       same SearchControl; the deadline is read atomically so the UCI layer can
+       extend it mid-search on `ponderhit`, and `stop` ends all workers at the
+       next check_time poll. Never NULL. */
+    SearchControl *ctl;
 
     Move     killers[MAX_PLY][2];
     int      history[2][64][64];   /* [color][from][to] */
@@ -122,12 +123,12 @@ static long ms_now(void) {
 
 static void check_time(SearchCtx *ctx) {
     if ((ctx->nodes & 4095) == 0) {
-        if (ms_now() >= ctx->deadline_ms) {
+        long deadline = atomic_load_explicit(&ctx->ctl->deadline_ms,
+                                             memory_order_relaxed);
+        if (ms_now() >= deadline) {
             ctx->stopped = true;
-            if (ctx->global_stop)
-                atomic_store_explicit(ctx->global_stop, true, memory_order_relaxed);
-        } else if (ctx->global_stop &&
-                   atomic_load_explicit(ctx->global_stop, memory_order_relaxed)) {
+            atomic_store_explicit(&ctx->ctl->stop, true, memory_order_relaxed);
+        } else if (atomic_load_explicit(&ctx->ctl->stop, memory_order_relaxed)) {
             ctx->stopped = true;
         }
     }
@@ -790,7 +791,9 @@ static IdResult run_id(SearchCtx *ctx, const Position *pos, int max_depth,
            ~50% of total budget regardless of where the last ply landed, so
            we systematically left ~half our thinking time on the table. */
         long iter_elapsed = ms_now() - iter_start;
-        if (ms_now() + 2 * iter_elapsed > ctx->deadline_ms) break;
+        long deadline = atomic_load_explicit(&ctx->ctl->deadline_ms,
+                                             memory_order_relaxed);
+        if (ms_now() + 2 * iter_elapsed > deadline) break;
     }
 
     return r;
@@ -803,8 +806,7 @@ typedef struct {
     const Position  *pos;
     int              max_depth;
     TT              *tt;
-    long             deadline_ms;
-    atomic_bool     *global_stop;
+    SearchControl   *ctl;        /* shared deadline + stop, see check_time */
     bool             is_main;
 
     /* Optional game-history seed for repetition detection. NULL/0 = none. */
@@ -822,9 +824,8 @@ static void *worker_run(void *arg) {
     Worker *w = arg;
     SearchCtx ctx;
     memset(&ctx, 0, sizeof(ctx));
-    ctx.deadline_ms = w->deadline_ms;
-    ctx.global_stop = w->global_stop;
-    ctx.root_best   = MOVE_NONE;
+    ctx.ctl       = w->ctl;
+    ctx.root_best = MOVE_NONE;
 
     /* Seed rep_stack with game-history hashes so 2-fold via prior moves is
        visible to is_repetition. Capacity matches rep_stack (1024); excess
@@ -885,9 +886,11 @@ BenchResult search_bench(const Position *pos, int depth, TT *tt) {
     memset(&ctx, 0, sizeof(ctx));
     /* Huge deadline so check_time / soft-budget never fire — bench must be
        deterministic across runs and machines. */
-    ctx.deadline_ms = ms_now() + 3600L * 1000L;
-    ctx.global_stop = NULL;
-    ctx.root_best   = MOVE_NONE;
+    SearchControl ctl;
+    atomic_init(&ctl.deadline_ms, ms_now() + 3600L * 1000L);
+    atomic_init(&ctl.stop, false);
+    ctx.ctl       = &ctl;
+    ctx.root_best = MOVE_NONE;
 
     IdResult r = run_id(&ctx, pos, depth, tt, false);
 
@@ -904,9 +907,11 @@ TimedBenchResult search_bench_timed(const Position *pos, int time_ms, TT *tt) {
     SearchCtx ctx;
     memset(&ctx, 0, sizeof(ctx));
     long start = ms_now();
-    ctx.deadline_ms = start + time_ms;
-    ctx.global_stop = NULL;
-    ctx.root_best   = MOVE_NONE;
+    SearchControl ctl;
+    atomic_init(&ctl.deadline_ms, start + time_ms);
+    atomic_init(&ctl.stop, false);
+    ctx.ctl       = &ctl;
+    ctx.root_best = MOVE_NONE;
 
     IdResult r = run_id(&ctx, pos, MAX_PLY, tt, false);
 
@@ -938,6 +943,21 @@ Move find_best_move_smp_hist_depth(const Position *pos, int time_ms, int max_dep
                                    const uint64_t *history, int history_len,
                                    int *out_score, bool *out_have_score,
                                    int *out_depth) {
+    /* Self-owned control: a fixed deadline `time_ms` out, no external stop.
+       The pondering UCI path uses find_best_move_smp_ctl directly so it can
+       extend the deadline / request a stop while the search runs. */
+    SearchControl ctl;
+    atomic_init(&ctl.deadline_ms, ms_now() + time_ms);
+    atomic_init(&ctl.stop, false);
+    return find_best_move_smp_ctl(pos, &ctl, max_depth, tt, threads,
+                                  history, history_len,
+                                  out_score, out_have_score, out_depth);
+}
+
+Move find_best_move_smp_ctl(const Position *pos, SearchControl *ctl,
+                            int max_depth, TT *tt, int threads,
+                            const uint64_t *history, int history_len,
+                            int *out_score, bool *out_have_score, int *out_depth) {
     if (threads < 1) threads = 1;
     if (max_depth <= 0 || max_depth > MAX_PLY) max_depth = MAX_PLY;
     if (out_have_score) *out_have_score = false;
@@ -961,15 +981,11 @@ Move find_best_move_smp_hist_depth(const Position *pos, int time_ms, int max_dep
             fflush(stderr);
             if (out_score)      *out_score      = tb_score;
             if (out_have_score) *out_have_score = true;
-            (void)time_ms; (void)max_depth; (void)threads;
+            (void)max_depth; (void)threads;
             (void)history; (void)history_len;
             return tb_move;
         }
     }
-
-    atomic_bool global_stop;
-    atomic_init(&global_stop, false);
-    long deadline = ms_now() + time_ms;
 
     Worker *workers = calloc((size_t)threads, sizeof(Worker));
     pthread_t *handles = (threads > 1)
@@ -979,8 +995,7 @@ Move find_best_move_smp_hist_depth(const Position *pos, int time_ms, int max_dep
         workers[i].pos          = pos;
         workers[i].max_depth    = max_depth;
         workers[i].tt           = tt;
-        workers[i].deadline_ms  = deadline;
-        workers[i].global_stop  = &global_stop;
+        workers[i].ctl          = ctl;
         workers[i].is_main      = (i == 0);
         workers[i].history      = history;
         workers[i].history_len  = history_len;
@@ -994,7 +1009,7 @@ Move find_best_move_smp_hist_depth(const Position *pos, int time_ms, int max_dep
         pthread_create(&handles[i], NULL, worker_run, &workers[i]);
     }
     worker_run(&workers[0]);
-    atomic_store_explicit(&global_stop, true, memory_order_relaxed);
+    atomic_store_explicit(&ctl->stop, true, memory_order_relaxed);
     for (int i = 1; i < threads; i++) {
         pthread_join(handles[i], NULL);
     }
