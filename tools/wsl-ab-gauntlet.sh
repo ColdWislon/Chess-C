@@ -94,6 +94,7 @@ echo "  starting on: $ORIG_REF"
 # leave the user stranded on the wrong branch.
 cleanup() {
     echo "  restoring to $ORIG_REF"
+    git checkout --quiet -- build-info.json 2>/dev/null || true
     git checkout "$ORIG_REF" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -104,6 +105,10 @@ build_ref() {
     echo "[build $tag] git checkout $ref"
     git checkout --quiet "$ref"
     make -s release
+    # make regenerates tracked build artifacts (build-info.json); discard them
+    # so they can't block the next checkout. Safe: the tree was clean at start,
+    # so anything dirty here was created by our own build.
+    git checkout --quiet -- build-info.json 2>/dev/null || true
     cp chess-engine-c "chess-engine-c.$tag"
     echo "[build $tag] → chess-engine-c.$tag"
 }
