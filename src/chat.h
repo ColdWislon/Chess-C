@@ -37,6 +37,15 @@ typedef struct {
     int  tb_largest;     /* syzygy_largest(); 0 if no tables loaded */
     bool book_loaded;    /* whether main.c's book pointer was non-NULL */
     bool nnue_loaded;    /* whether an .nnue net is loaded (else HCE/PeSTO) */
+
+    /* Pondering. ponder_hit is true when this move came from a search started
+       on the opponent's clock (`go ponder`) and confirmed by `ponderhit` — we
+       got the search depth for free. ponder_hits / ponder_searches are running
+       per-game tallies (a "search" is every go-ponder; a "hit" is a ponderhit),
+       so ponder_hits/ponder_searches is the live hit rate. */
+    bool ponder_hit;
+    int  ponder_hits;
+    int  ponder_searches;
 } ChatContext;
 
 /* Build a single chat line for the given move/score context.

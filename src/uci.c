@@ -105,6 +105,8 @@ typedef struct {
     bool have_last;
     int  move_number;
     bool prev_was_book;
+    int  ponder_searches;   /* go-ponder commands this game */
+    int  ponder_hits;       /* of those, confirmed by ponderhit */
 } ChatState;
 
 /* Everything the background search thread needs. Filled by the `go` handler
@@ -120,6 +122,7 @@ typedef struct {
     TT             *tt;
     OpeningBook    *book;
     ChatState      *cs;
+    bool            started_ponder; /* this search began as `go ponder` */
 } SearchJob;
 
 typedef struct {
@@ -159,6 +162,16 @@ static void *search_thread_fn(void *arg) {
     }
     bool ponder = atomic_load_explicit(ta->is_ponder, memory_order_relaxed);
 
+    /* Tally ponder outcomes (this thread is the only writer of cs; the next
+       search thread sees these via the join in stop_and_join). A ponder search
+       that ended with is_ponder still set was a miss; one cleared by ponderhit
+       was a hit and produced the move we're about to play. Book moves don't
+       count — returning a book move instantly isn't pondering. */
+    bool ponder_real = j->started_ponder && !was_book;
+    bool ponder_hit  = ponder_real && !ponder;
+    if (ponder_real) j->cs->ponder_searches++;
+    if (ponder_hit)  j->cs->ponder_hits++;
+
     if (best != MOVE_NONE) {
         if (!ponder) {
             ChatState *cs = j->cs;
@@ -180,6 +193,11 @@ static void *search_thread_fn(void *arg) {
                 .tb_largest      = syzygy_largest(),
                 .book_loaded     = (j->book != NULL),
                 .nnue_loaded     = nnue_is_loaded(),
+                /* Announce only the first few hits so a high-hit-rate game
+                   doesn't spam; the rate keeps climbing in the shown lines. */
+                .ponder_hit      = ponder_hit && (cs->ponder_hits <= 3),
+                .ponder_hits     = cs->ponder_hits,
+                .ponder_searches = cs->ponder_searches,
             };
             char chat_buf[200];
             if (chat_build(&cc, chat_buf, sizeof(chat_buf)))
@@ -364,6 +382,8 @@ void uci_run(OpeningBook *book) {
             cs.have_last     = false;
             cs.move_number   = 1;
             cs.prev_was_book = false;
+            cs.ponder_searches = 0;
+            cs.ponder_hits     = 0;
             game_history_len = 0;
             /* Re-emit build id at game start so the dashboard's journal
                scan (which only looks back a few hundred lines) finds it
@@ -452,6 +472,7 @@ void uci_run(OpeningBook *book) {
             job.tt          = &tt;
             job.book        = book;
             job.cs          = &cs;
+            job.started_ponder = pondering;
 
             if (pthread_create(&search_thr, NULL, search_thread_fn, &targ) == 0) {
                 have_thread = true;

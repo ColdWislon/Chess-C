@@ -196,6 +196,22 @@ int chat_build(const ChatContext *ctx, char *out, int out_size) {
         }
     }
 
+    /* ── Pondering paid off: this move came from a search we ran on the
+       opponent's own clock and they played into it. Reports the live hit rate.
+       uci.c only sets ponder_hit for the first few hits of a game, so a
+       high-hit-rate game doesn't flood the chat. */
+    if (ctx->ponder_hit) {
+        if (ctx->depth_reached > 0)
+            snprintf(out, out_size,
+                     "ponder hit %d/%d — searched your move on your clock, depth %d",
+                     ctx->ponder_hits, ctx->ponder_searches, ctx->depth_reached);
+        else
+            snprintf(out, out_size,
+                     "ponder hit %d/%d — searched your move on your clock",
+                     ctx->ponder_hits, ctx->ponder_searches);
+        return 1;
+    }
+
     /* ── Feature rotation: lowest-priority slot. Fires when nothing
        tactical is happening — fills early-game silence with a couple of
        brief feature mentions, then goes quiet after one full cycle.
