@@ -127,7 +127,8 @@ If it prints `PLAYING <id>`, wait. Polite poll interval: 30-60 s. The game URL i
 | Tablebases | **Syzygy 3-4-5-piece** via Fathom (`external/tbprobe.c`, vendored CC0). Files at `/home/bertrand/syzygy/` (~939 MB). Root probe is DTZ-aware; in-search probe is WDL-only. |
 | Time management | `total_time / moves_left * 0.9 + inc*3/4`, capped at `our_time / 2`, minus `Move Overhead`. Soft budget aborts next iteration if predicted 2× last wouldn't fit. |
 | Tuning probes | `info string PROF …` per ID iteration — ordering / lmr_research / nmp_yield / see_qprune rates + RFP/futility/LMP/asp_widens counts (see PROF section). |
-| UCI options | Hash, Threads (Lazy SMP), Move Overhead, Minimum Thinking Time, SyzygyPath, SyzygyProbeLimit, Syzygy50MoveRule, SyzygyProbeDepth — all honored. |
+| Pondering | `go ponder`/`ponderhit`/`stop` — the search runs on a background thread so the UCI loop stays responsive; a ponder search is a search with an infinite deadline, set to the real budget on `ponderhit`. Engine emits `bestmove <best> ponder <reply>` (the predicted reply = pv[0][1]) so the GUI knows what to ponder. |
+| UCI options | Hash, Threads (Lazy SMP), Move Overhead, Minimum Thinking Time, SyzygyPath, SyzygyProbeLimit, Syzygy50MoveRule, SyzygyProbeDepth, EvalFile, Ponder — all honored. |
 
 ## Engine chat (lichess relay)
 
@@ -146,7 +147,8 @@ lichess-bot's `engine_wrapper.py` reads `result.info["string"]`, strips the `CHA
 5. Syzygy root probe hit → `syzygy tablebase: winning|drawn|losing`
 6. First non-book move after a book sequence → `out of book — searched to depth N`
 7. Eval swing ≥ 150 cp vs previous turn → `eval ±X.XX -> ±Y.YY`
-8. **Feature rotation** (low-priority filler — fires only when 2-7 didn't and we're still on the first few moves): cycles through 5 short feature mentions (search techniques → SMP/hash → Syzygy → eval/book → search depth) on moves 2..6, then goes silent for the rest of the game. The point is to surface what the engine does in the chat early on without spamming the user.
+8. Ponder hit → `ponder hit N/M — searched your move on your clock, depth D` — fires when the move came from a search the engine ran on the opponent's clock (`go ponder`) that they then played into. N/M is the live per-game hit rate; only the first 3 hits announce (so a high-hit-rate game doesn't spam). Book/forced-move ponders don't count; ponder *misses* are silent but still increment the denominator.
+9. **Feature rotation** (low-priority filler — fires only when 2-8 didn't and we're still on the first few moves): cycles through 5 short feature mentions (search techniques → SMP/hash → Syzygy → eval/book → search depth) on moves 2..6, then goes silent for the rest of the game. The point is to surface what the engine does in the chat early on without spamming the user.
 
 State (`is_first_move`, `last_score`, `have_last`, `move_number`, `prev_was_book`) lives in `uci.c::uci_run` and resets on `ucinewgame`. python-chess only keeps the **last** `info string` of a search in `info["string"]`, so the engine emits exactly one CHAT line per move (right before `bestmove`).
 

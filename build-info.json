@@ -1,8 +1,13 @@
 {
   "build_date": "2026-06-05",
-  "version": "dbde7ce (last 20 commits)",
-  "summary": "uci: emit `bestmove <best> ponder <reply>` so the GUI actually ponders",
+  "version": "1331aa1 (last 20 commits)",
+  "summary": "build-info: regenerate for dbde7ce (bestmove ponder move)",
   "kept": [
+    {
+      "name": "regenerate for dbde7ce (bestmove ponder move)  [1331aa1]",
+      "kind": "ergonomics",
+      "impact": "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
+    },
     {
       "name": "emit `bestmove <best> ponder <reply>` so the GUI actually ponders  [dbde7ce]",
       "kind": "ergonomics",
@@ -97,11 +102,6 @@
       "name": "credit Claude as development collaborator  [a0e47d8]",
       "kind": "quality",
       "impact": "README: credit Claude as development collaborator"
-    },
-    {
-      "name": "add MIT LICENSE file  [5328466]",
-      "kind": "quality",
-      "impact": "add MIT LICENSE file"
     }
   ],
   "rejected": []

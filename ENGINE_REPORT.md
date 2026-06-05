@@ -5,6 +5,15 @@ with file/line pointers, the *why* behind each design choice, and the rough
 strength contribution. Sources read: `src/main.c`, `board.{c,h}`, `search.{c,h}`,
 `eval.c`, `tt.{c,h}`, `uci.c`, `opening.c`, `chat.c`, `bench.c`.
 
+> **Snapshot note (this doc is from 2026-05-21, commit `c4773b6`).** Two big
+> things shipped *after* this snapshot and are NOT reflected throughout below:
+> (1) a **from-scratch NNUE eval** (768→256→1, +207 Elo over the hand-crafted
+> eval) is now the production default — see `src/nnue.{c,h}`, `docs/nnue-format.md`;
+> (2) **pondering** (`go ponder` on the opponent's clock) — the search now runs
+> on a background thread. The live bridge is also **`asynclio-bot`** (the
+> python-chess `lichess-bot-c.service` was removed). CLAUDE.md / README.md are
+> the current source of truth.
+
 ---
 
 ## 1. Headline numbers
@@ -47,7 +56,7 @@ strength contribution. Sources read: `src/main.c`, `board.{c,h}`, `search.{c,h}`
 ```
 
 Single binary, no external dependencies beyond libc + pthreads + libm. Talks
-UCI on stdin/stdout; lichess-bot bridges that to the Lichess API.
+UCI on stdin/stdout; the asynclio-bot bridge connects that to the Lichess API.
 
 ---
 
@@ -393,7 +402,9 @@ gives the no-throttle ground truth.
 
 ## 11. Production deployment
 
-- Runs as `lichess-bot-c.service` on Raspberry Pi 4, 24/7
+- Runs under `asynclio-bot.service` on Raspberry Pi 4, 24/7 (the engine is
+  spawned per-game; pondering enabled). The earlier `lichess-bot-c.service` was
+  removed 2026-06-05.
 - 384 MB hash, 4 threads (Lazy SMP)
 - Account: **rpiBot73** on lichess.org
 - Accepts rated standard rapid + classical
@@ -443,9 +454,11 @@ starting — restarting mid-game forfeits the game.
 
 ## 13. Known gaps (be honest in the talk)
 
-- **No neural-network eval (NNUE).** Classical eval ceiling is ~2200–2400
-  Elo with perfect tuning; NNUE adds ~400+ Elo but requires a training
-  pipeline.
+- ~~**No neural-network eval (NNUE).**~~ **DONE (after this snapshot).** A
+  from-scratch 768→256→1 NNUE eval now ships as the production default and
+  measured **+207 Elo** over the hand-crafted eval (200-game WSL gauntlet). It
+  uses an incremental accumulator on the search hot path; the classical PeSTO
+  eval remains as a fallback. See the NNUE section in CLAUDE.md.
 - **6-7 piece tablebases not on disk.** 5-piece is ~939 MB and fits easily;
   6-piece is ~150 GB and 7-piece is ~17 TB. Most practical endgames are
   covered by 3-5 piece, so the diminishing returns kick in fast.
