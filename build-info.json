@@ -1,8 +1,13 @@
 {
   "build_date": "2026-06-05",
-  "version": "1331aa1 (last 20 commits)",
-  "summary": "build-info: regenerate for dbde7ce (bestmove ponder move)",
+  "version": "18bdc97 (last 20 commits)",
+  "summary": "docs: align README/CLAUDE/ENGINE_REPORT with NNUE + pondering reality",
   "kept": [
+    {
+      "name": "align README/CLAUDE/ENGINE_REPORT with NNUE + pondering reality  [18bdc97]",
+      "kind": "ergonomics",
+      "impact": "- README: drop the stale \"No NNUE\" framing (NNUE ships, +207 Elo as the"
+    },
     {
       "name": "regenerate for dbde7ce (bestmove ponder move)  [1331aa1]",
       "kind": "ergonomics",
@@ -97,11 +102,6 @@
       "name": "opponent stats table (W/D/L per bot, win%, rating, bar)  [20c1578]",
       "kind": "ergonomics",
       "impact": "dashboard: opponent stats table (W/D/L per bot, win%, rating, bar)"
-    },
-    {
-      "name": "credit Claude as development collaborator  [a0e47d8]",
-      "kind": "quality",
-      "impact": "README: credit Claude as development collaborator"
     }
   ],
   "rejected": []
