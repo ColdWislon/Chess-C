@@ -19,7 +19,7 @@
 #define MATE_BOUND   (SEARCH_MATE - 1000)
 
 /* LMR reduction lookup, indexed [depth][moves_searched]. Populated by
-   search_init() with the standard 0.5 + log(d)*log(m)/2 formula — smoothly
+   search_init() with the 0.5 + log(d)*log(m)/1.75 formula — smoothly
    reduces more at higher depth and later move number than the old constant-
    plus-step formula did. Entries are clamped non-negative; the move-loop
    later clamps to <= depth-1 to keep the reduced search at depth >= 1. */
@@ -519,7 +519,7 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
                                 ctx, tt, ply + 1, true, m);
         } else {
             /* LMR for late quiet moves and bad captures at sufficient depth.
-               Table is log(d)*log(m)/2.25 + 0.5; scaled down for PV nodes
+               Table is log(d)*log(m)/1.75 + 0.5; scaled down for PV nodes
                and for moves with strong ordering signals (killers / counter).
                Bad captures (SEE < 0) also get reduced — they're late moves
                by nature, ordered after good captures and killers. */
@@ -869,7 +869,7 @@ void search_init(void) {
     for (int m = 0; m < 64; m++) LMR[0][m] = 0;
     for (int d = 1; d < 64; d++) {
         for (int m = 1; m < 64; m++) {
-            double r  = 0.5 + log((double)d) * log((double)m) / 2.25;
+            double r  = 0.5 + log((double)d) * log((double)m) / 1.75;
             int    ir = (int)r;
             LMR[d][m] = ir < 0 ? 0 : ir;
         }
