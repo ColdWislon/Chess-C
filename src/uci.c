@@ -141,18 +141,20 @@ static void *search_thread_fn(void *arg) {
     ThreadArg *ta = arg;
     SearchJob *j  = ta->job;
 
-    Move best     = book_probe(j->book, &j->pos);
-    bool was_book = (best != MOVE_NONE);
-    int  score    = 0;
-    bool have_score = false;
+    Move best        = book_probe(j->book, &j->pos);
+    bool was_book    = (best != MOVE_NONE);
+    int  score       = 0;
+    bool have_score  = false;
     int  depth_reached = 0;
+    Move ponder_move = MOVE_NONE;   /* predicted reply, for `bestmove … ponder …` */
 
     if (!was_book)
         best = find_best_move_smp_ctl(&j->pos, ta->ctl,
                                       j->depth > 0 ? j->depth : 64,
                                       j->tt, j->threads,
                                       j->history, j->history_len,
-                                      &score, &have_score, &depth_reached);
+                                      &score, &have_score, &depth_reached,
+                                      &ponder_move);
 
     /* Hold bestmove until ponderhit (is_ponder cleared) or stop. */
     while (atomic_load_explicit(ta->is_ponder, memory_order_relaxed) &&
@@ -209,7 +211,15 @@ static void *search_thread_fn(void *arg) {
         }
         char buf[6];
         move_to_uci(best, buf);
-        printf("bestmove %s\n", buf);
+        /* Advertise the predicted reply so the GUI/bridge can ponder it
+           (python-chess only ponders when the engine emits `… ponder …`). */
+        if (ponder_move != MOVE_NONE) {
+            char pbuf[6];
+            move_to_uci(ponder_move, pbuf);
+            printf("bestmove %s ponder %s\n", buf, pbuf);
+        } else {
+            printf("bestmove %s\n", buf);
+        }
     } else {
         printf("bestmove 0000\n");
     }

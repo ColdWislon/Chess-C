@@ -633,11 +633,12 @@ typedef struct {
     int  best_score;
     int  depth_reached;   /* highest fully-completed iteration */
     bool any_completed;
+    Move ponder_move;     /* pv[0][1] — predicted reply, for `bestmove … ponder …` */
 } IdResult;
 
 static IdResult run_id(SearchCtx *ctx, const Position *pos, int max_depth,
                        TT *tt, bool log_to_stderr) {
-    IdResult r = { MOVE_NONE, 0, 0, false };
+    IdResult r = { MOVE_NONE, 0, 0, false, MOVE_NONE };
 
     /* Seed the per-ply accumulator stack at ply 0. Subsequent plies are
        advanced incrementally by search_do_move(). When no NNUE is loaded,
@@ -720,6 +721,11 @@ static IdResult run_id(SearchCtx *ctx, const Position *pos, int max_depth,
         r.best_score    = score;
         r.depth_reached = depth;
         r.any_completed = true;
+        /* Capture the ponder move (predicted reply = pv[0][1]) from THIS
+           completed iteration — a later iteration may start and get aborted,
+           leaving pv[0] inconsistent, so we can't read it at function exit. */
+        r.ponder_move = (ctx->pv_len[0] >= 2 && ctx->pv[0][0] == r.best_move)
+                        ? ctx->pv[0][1] : MOVE_NONE;
 
         if (log_to_stderr) {
             long elapsed = ms_now() - iter_start;
@@ -818,6 +824,7 @@ typedef struct {
     int  best_score;
     int  depth_reached;
     bool any_completed;
+    Move ponder_move;
 } Worker;
 
 static void *worker_run(void *arg) {
@@ -846,6 +853,7 @@ static void *worker_run(void *arg) {
     w->best_score    = r.best_score;
     w->depth_reached = r.depth_reached;
     w->any_completed = r.any_completed;
+    w->ponder_move   = r.ponder_move;
     return NULL;
 }
 
@@ -951,17 +959,19 @@ Move find_best_move_smp_hist_depth(const Position *pos, int time_ms, int max_dep
     atomic_init(&ctl.stop, false);
     return find_best_move_smp_ctl(pos, &ctl, max_depth, tt, threads,
                                   history, history_len,
-                                  out_score, out_have_score, out_depth);
+                                  out_score, out_have_score, out_depth, NULL);
 }
 
 Move find_best_move_smp_ctl(const Position *pos, SearchControl *ctl,
                             int max_depth, TT *tt, int threads,
                             const uint64_t *history, int history_len,
-                            int *out_score, bool *out_have_score, int *out_depth) {
+                            int *out_score, bool *out_have_score, int *out_depth,
+                            Move *out_ponder) {
     if (threads < 1) threads = 1;
     if (max_depth <= 0 || max_depth > MAX_PLY) max_depth = MAX_PLY;
     if (out_have_score) *out_have_score = false;
     if (out_depth)      *out_depth      = 0;
+    if (out_ponder)     *out_ponder     = MOVE_NONE;
 
     /* Syzygy root probe — DTZ-aware best move, returned before any worker is
        spawned (tb_probe_root is documented not thread-safe). On a hit we emit
@@ -1019,6 +1029,7 @@ Move find_best_move_smp_ctl(const Position *pos, SearchControl *ctl,
         if (out_score)      *out_score      = workers[0].best_score;
         if (out_have_score) *out_have_score = true;
         if (out_depth)      *out_depth      = workers[0].depth_reached;
+        if (out_ponder)     *out_ponder     = workers[0].ponder_move;
     }
 
     free(workers);

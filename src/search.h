@@ -72,7 +72,8 @@ Move find_best_move_smp_hist_depth(const Position *pos, int time_ms, int max_dep
 Move find_best_move_smp_ctl(const Position *pos, SearchControl *ctl,
                             int max_depth, TT *tt, int threads,
                             const uint64_t *history, int history_len,
-                            int *out_score, bool *out_have_score, int *out_depth);
+                            int *out_score, bool *out_have_score, int *out_depth,
+                            Move *out_ponder);
 
 /* Deterministic fixed-depth search used by the bench infrastructure.
    Single-threaded, effectively no time limit — runs full iterative deepening
