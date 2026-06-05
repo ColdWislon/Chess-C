@@ -24,7 +24,7 @@ A classical UCI chess engine in C, running as an always-on bot on Raspberry Pi 4
 │   │   └── build_id.h        # Auto-regen at build (git SHA)
 │   ├── external/             # Vendored Fathom (Syzygy probe, CC0)
 │   ├── tools/
-│   │   ├── safe-restart-bot.sh        # Wait for rpiBot73 idle, then systemctl restart
+│   │   ├── safe-restart-bot.sh        # STALE: targets removed lichess-bot-c — use `systemctl restart asynclio-bot`
 │   │   ├── gen-corpus.py              # Build texel corpus from lichess games (PEP-668 safe venv)
 │   │   ├── apply-texel-snapshot.py    # Auto-patch src/eval.c arrays from a snapshot
 │   │   ├── wsl-gauntlet.sh            # Snapshot-based A/B gauntlet (texel-specific)
@@ -40,7 +40,7 @@ A classical UCI chess engine in C, running as an always-on bot on Raspberry Pi 4
 │   └── chess-engine-c        # Built binary
 ├── syzygy/                   # 3-4-5-piece tablebases, ~939 MB (gitignored)
 ├── lichess-bot/              # Python bridge: engine ↔ Lichess API
-│   ├── config-c.yml          # CANONICAL — used by lichess-bot-c.service (rpiBot73)
+│   ├── config-c.yml          # token source for asynclio-bot's service-run.sh (rpiBot73)
 │   ├── config.yml            # legacy — used by the disabled lichess-bot.service
 │   └── venv/
 └── chess-dashboard/          # Web dashboard (port 8080)
@@ -82,7 +82,7 @@ sudo journalctl -u asynclio-bot -f       # live engine logs (depth/score/nodes/n
 sudo journalctl -u chess-dashboard -f
 ```
 
-`asynclio-bot.service` is canonical as of 2026-06-01 (custom async bridge, based on Heiaha/asyncLio-bot, at `/home/bertrand/asyncLio-bot`, launched via `service-run.sh`, account rpiBot73). It reads the `lip_` token from `/home/bertrand/lichess-bot/config-c.yml` and runs the same engine binary (`/home/bertrand/chess-c/chess-engine-c`); the engine is spawned **per-game** with `uci_options` (Threads/Hash/EvalFile) from `/home/bertrand/asyncLio-bot/config.yml`, stderr inherited to the journal, and the CHAT relay ported. The previous `lichess-bot-c.service` (python-chess `lichess-bot.py --config config-c.yml`) is now disabled+inactive, kept as a fallback — asynclio-bot `Conflicts=lichess-bot-c` and they share the same token, so only one runs at a time. The older `lichess-bot.service` (`config.yml`, MegaBot73) was disabled 2026-05-16 — don't re-enable either. The dashboard reads both units' journals (`_journal_units` in `dashboard/server.py`). **`tools/safe-restart-bot.sh` still targets the retired `lichess-bot-c`** — restart `asynclio-bot` directly after an idle-check. Revert to lichess-bot-c: `sudo systemctl disable --now asynclio-bot && sudo systemctl enable --now lichess-bot-c`. Ad-hoc foreground trial: `asyncLio-bot/run-test.sh`.
+`asynclio-bot.service` is the **sole** bridge as of 2026-06-05 (custom async bridge, based on Heiaha/asyncLio-bot, at `/home/bertrand/asyncLio-bot`, launched via `service-run.sh`, account rpiBot73). It reads the `lip_` token from `/home/bertrand/lichess-bot/config-c.yml` and runs the engine binary (`/home/bertrand/chess-c/chess-engine-c`); the engine is spawned **per-game** with `uci_options` (Threads/Hash/EvalFile) from `/home/bertrand/asyncLio-bot/config.yml`, stderr inherited to the journal, the CHAT relay ported, and **pondering enabled** (`ponder: true` → `go ponder`/`ponderhit`/`stop`; the engine thinks on the opponent's clock and emits `CHAT ponder hit N/M …` lines). The old `lichess-bot-c.service` (python-chess `lichess-bot.py --config config-c.yml`) was **removed 2026-06-05** (unit file deleted; backup at `/home/bertrand/lichess-bot/lichess-bot-c.service.removed-backup`). Its config `config-c.yml` **stays** — `service-run.sh` still reads the token from it. The older `lichess-bot.service` (`config.yml`, MegaBot73) was disabled 2026-05-16 — don't re-enable it. The dashboard reads the journal units listed in `_journal_units` (`dashboard/server.py`). **Deploy/restart: `sudo systemctl restart asynclio-bot` after an idle-check** — `tools/safe-restart-bot.sh` is stale (it names the deleted `lichess-bot-c`). To restore the old bridge: re-create the unit from the backup, `daemon-reload`, then `systemctl disable --now asynclio-bot && systemctl enable --now lichess-bot-c`. Ad-hoc foreground trial: `asyncLio-bot/run-test.sh` (stops the live bot first).
 
 Dashboard: http://192.168.1.66:8080
 
@@ -104,7 +104,7 @@ curl -s http://127.0.0.1:8080/api/status?bot=rpibot73 \
 
 If it prints `PLAYING <id>`, wait. Polite poll interval: 30-60 s. The game URL is `https://lichess.org/<id>` if you want to watch it finish. Building (`make release`) does not need to wait — only the binary on disk is changed; the running service keeps using the binary it `exec()`'d at startup, until the next restart.
 
-**Safer way to deploy a new binary:** `./tools/safe-restart-bot.sh` polls idle, then `systemctl restart`s, then verifies the new build SHA is in the journal. Use `--now` to abort if not currently idle instead of polling.
+**Deploy a new binary:** idle-check (above), then `sudo systemctl restart asynclio-bot`, then verify the new build SHA in `journalctl -u asynclio-bot`. (`tools/safe-restart-bot.sh` is stale — it polls idle + restarts the **removed** `lichess-bot-c`; don't use it until rewritten for asynclio-bot.)
 
 ## Bot account
 
@@ -165,7 +165,7 @@ Expect: a `CHAT engine ready ...` greeting on the first move, then a `CHAT captu
 - `Move` is a packed `uint32_t` — see encoding comment in `board.h:46`. Use the `MOVE_FROM/TO/PIECE/CAPTURE/PROMO/FLAGS` macros, never bit-mask manually.
 - Search returns scores from side-to-move POV in centipawns. Mate scores are stored in TT as ply-independent values; converted on probe/store.
 - `info depth … score cp …` goes to **stderr** (parsed from journalctl by the dashboard). Only UCI responses + `info string CHAT …` go to stdout.
-- `chess-engine-c.service` doesn't exist as a separate unit — the engine is launched as a child process by `lichess-bot-c.service`.
+- `chess-engine-c.service` doesn't exist as a separate unit — the engine is launched as a per-game child process by `asynclio-bot.service`.
 
 ## Syzygy tablebases
 
@@ -217,10 +217,10 @@ A custom Claude Code slash command that runs the full propose → review → gau
 Trigger with `/improve` in a Claude Code session. The orchestrator:
 - Refuses if working tree dirty or not on main
 - Reverts src/ on any stage failure
-- Restarts `lichess-bot-c` if the gauntlet stopped it
+- Restarts `asynclio-bot` if the gauntlet stopped it
 - Pushes to feature branch only — production never touched
 
-The user is expected to take it from there: WSL 200+ game confirmation via `tools/wsl-ab-gauntlet.sh main <branch>`, then `git merge --ff-only` + `./tools/safe-restart-bot.sh` if confirmed.
+The user is expected to take it from there: WSL 200+ game confirmation via `tools/wsl-ab-gauntlet.sh main <branch>`, then `git merge --ff-only` + idle-check + `sudo systemctl restart asynclio-bot` if confirmed.
 
 ## Tuning + gauntlet workflow
 
@@ -232,7 +232,7 @@ The combined loop for any eval/search change:
    - Build baseline + variant binaries, stop service, run `/tmp/<change>-gauntlet.py -n 40 -t 20`, restart service
 4. **WSL gauntlet** (200-400 games, ~20 min on 12-core, ±25-40 Elo confidence) → magnitude
    - `tools/wsl-ab-gauntlet.sh main <change>-tune` — see "Gauntlet infrastructure" below
-5. **Deploy**: merge branch → main, `./tools/safe-restart-bot.sh`. Production unaffected until then.
+5. **Deploy**: merge branch → main, idle-check rpiBot73, `sudo systemctl restart asynclio-bot`. Production unaffected until then.
 
 **What's been tried** (see git log for details, branches still on origin):
 - `lmr-tune` (`0.85 + log(d)·log(m)/2.0`) — Pi +53 ± 113, WSL +9 ± 24. Marginal real gain.
@@ -319,7 +319,7 @@ Conventions: feature index `rel_color*384 + piece*64 + rel_sq` (rel_sq = `sq^56`
 
 **100 bot-vs-bot games per day limit:** Lichess caps each bot at 100 games vs other bots per 24 hours. Active bots (maia, GarboBot, sargon, turkjs, Jibbby, halcyonbot) hit this limit by midnight European time. The counter resets around 07:35 each morning. Challenges fail with `"played 100 games against other bots today"` until then.
 
-**Permanent block list** (bots that never accept, configured in `config-c.yml`):
+**Permanent block list** (bots that never accept, configured in `asyncLio-bot/config.yml` under `blocklist:`):
 - `maia2200_10n` — not accepting challenges
 - `ChessChildren`, `honzovy-sachy-2` — don't accept bot challenges
 - `DarkOnWeakBot` — not accepting at the moment
@@ -333,11 +333,13 @@ Conventions: feature index `rel_color*384 + piece*64 + rel_sq` (rel_sq = `sq^56`
 2. **`/api/challenge/<bot>` 429** — triggered by issuing outgoing challenges too fast. Surfaces as `ERROR {'error': 'Too many requests.` in `matchmaking.py:100` and applies even on a clean fresh start if the token has been challenging recently. Matchmaking has its own backoff (`matchmaking.py:265` schedules the next attempt) so the bot recovers without intervention — it just sits idle until the window opens. Observed cleared after ~5-10 min.
 
 Recovery if either type is stuck:
-1. `sudo systemctl stop lichess-bot`
-2. `ps aux | grep lichess | grep -v grep | awk '{print $2}' | xargs sudo kill -9`
-3. Wait for it to clear, then `sudo systemctl start lichess-bot`
+1. `sudo systemctl stop asynclio-bot`
+2. `ps aux | grep -E 'asynclio|main.py' | grep -v grep | awk '{print $2}' | xargs sudo kill -9`
+3. Wait for it to clear, then `sudo systemctl start asynclio-bot`
 
-**Stray processes:** Never run `lichess-bot.py` manually in the background while the systemd service is also running.
+(Line refs above point at the old python-chess `matchmaking.py`; the live bridge is asynclio-bot, whose equivalent is `asyncLio-bot/matchmaker.py` — the backoff behavior is analogous.)
+
+**Stray processes:** Never run the bridge (`asyncLio-bot/main.py`) manually in the background while the systemd service is also running.
 
 ## Adding/updating the opening book
 
