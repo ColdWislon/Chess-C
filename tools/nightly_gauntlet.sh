@@ -3,10 +3,10 @@
 #
 # Flow:
 #   1. Wait up to IDLE_WAIT_MAX_S for rpiBot73 to be idle (no live game).
-#   2. Stop lichess-bot-c so the gauntlet has all 4 Pi cores.
+#   2. Stop the bot bridge (asynclio-bot) so the gauntlet has all 4 Pi cores.
 #   3. Run python3 ladder_match.py under a hard wall-time cap.
 #   4. Archive log + PGN with a date suffix (kept forever — see CLAUDE.md).
-#   5. Always restart lichess-bot-c, even if the gauntlet failed.
+#   5. Always restart the bridge, even if the gauntlet failed.
 #   6. Emit a single one-line summary so `journalctl -u chess-c-gauntlet`
 #      tells the story without scrolling.
 #
@@ -19,7 +19,7 @@ LADDER="${REPO}/ladder_match.py"
 LOG="${REPO}/ladder_match.log"
 PGN="${REPO}/ladder_match.pgn"
 ARCHIVE_DIR="${REPO}/gauntlets"
-SERVICE="lichess-bot-c"
+SERVICE="asynclio-bot"
 DASH_URL="http://127.0.0.1:8080/api/status?bot=rpibot73"
 
 IDLE_POLL_S="${IDLE_POLL_S:-30}"
