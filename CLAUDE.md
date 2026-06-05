@@ -50,11 +50,19 @@ A classical UCI chess engine in C, running as an always-on bot on Raspberry Pi 4
 
 ```bash
 cd /home/bertrand/chess-c
-make release        # → ./chess-engine-c (gcc -O3 -march=native)
+make release        # → ./chess-engine-c (gcc -O3 -march=native -flto)
 make test           # perft startpos at depth 4 (197281) and 5 (4865609)
 make debug          # → ./chess-engine-c-dbg (-O0 -g)
 make clean
 ```
+
+Optimization flags are parameterized via `ARCH` (default `-march=native`) and
+`LTO` (default `-flto`). On the **Pi 4** build with `make release ARCH="-mcpu=cortex-a72"`
+— older ARM GCC doesn't always detect the Cortex-A72 through `-march=native` and
+can silently fall back to generic ARMv8, dropping the NEON popcount (`cnt`) path
+used by `board.h::popcount64`. Keep the `-march=native` default on x86 WSL
+gauntlet hosts. Profile any flag change with `make bench-compare BENCH_DEPTH=10`
+**on the Pi** before deploying.
 
 `src/poly_keys.h` is checked in (canonical 781 Polyglot constants). Regenerate with:
 ```bash

@@ -53,16 +53,27 @@ src/
 ## Build
 
 ```bash
-make release      # optimized binary → ./chess-engine-c
+make release      # optimized binary → ./chess-engine-c  (-O3 -march=native -flto)
 make test         # perft depth 4 & 5 (correctness check)
 make debug        # debug binary with symbols
 make bench        # run benchmark positions
 ```
 
+The optimization flags are parameterized via `ARCH` and `LTO`. The default
+`ARCH=-march=native` is correct for x86 (WSL gauntlets) and for a build done
+on the Pi itself. **On the Raspberry Pi 4, prefer the explicit Cortex-A72
+target** — older ARM GCC doesn't reliably detect the CPU through `-march=native`
+and can silently drop the NEON popcount path:
+
+```bash
+make release ARCH="-mcpu=cortex-a72"   # canonical Pi 4 build
+make release LTO=                      # disable link-time optimization
+```
+
 Requires GCC with C11 support and pthreads. Targets ARM (aarch64) on Pi but builds on any Linux/macOS with:
 
 ```bash
-gcc -std=c11 -O3 -march=native src/*.c external/tbprobe.o -o chess-engine-c -pthread -lm
+gcc -std=c11 -O3 -march=native -flto src/*.c external/tbprobe.o -o chess-engine-c -pthread -lm
 ```
 
 ## Run

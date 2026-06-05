@@ -2,6 +2,20 @@ CC      = gcc
 CFLAGS  = -std=c11 -Wall -Wextra -Isrc -Iexternal -pthread
 LDFLAGS = -pthread -lm
 
+# ── Target architecture / optimization ─────────────────────────────
+# ARCH defaults to -march=native, which is correct for the x86 WSL
+# gauntlet hosts and for a build done on the Pi itself. BUT on the
+# Raspberry Pi 4 prefer the explicit Cortex-A72 target: older ARM GCC
+# does not reliably detect the CPU via -march=native and can silently
+# fall back to generic ARMv8, dropping the NEON popcount (cnt) path used
+# by board.h's popcount64. On the Pi build with:
+#     make release ARCH="-mcpu=cortex-a72"
+# LTO inlines the hot bitboard/eval/movegen helpers across translation
+# units (typically a few % NPS). Disable with: make release LTO=
+ARCH ?= -march=native
+LTO  ?= -flto
+OPT   = -O3 $(ARCH) $(LTO)
+
 SRC = src/board.c src/tt.c src/eval.c src/search.c \
       src/opening.c src/perft.c src/chat.c src/bench.c \
       src/syzygy.c src/texel.c src/nnue.c src/datagen.c src/uci.c src/main.c
@@ -13,7 +27,7 @@ FATHOM_SRC = external/tbprobe.c
 FATHOM_OBJ = external/tbprobe.o
 
 $(FATHOM_OBJ): $(FATHOM_SRC) external/tbprobe.h external/tbconfig.h external/tbchess.c
-	$(CC) $(CFLAGS) -O3 -w -DNDEBUG -c $(FATHOM_SRC) -o $@
+	$(CC) $(CFLAGS) -O3 $(ARCH) $(LTO) -w -DNDEBUG -c $(FATHOM_SRC) -o $@
 
 # Build-time identity: short git SHA + "-dirty" if the working tree is dirty.
 # Regenerated on every build (src/build_id.h is gitignored). Surfaces to the
@@ -31,7 +45,7 @@ src/build_id.h: FORCE
 FORCE:
 
 release: src/build_id.h $(SRC) $(FATHOM_OBJ)
-	$(CC) $(CFLAGS) -O3 -march=native $(SRC) $(FATHOM_OBJ) -o chess-engine-c $(LDFLAGS)
+	$(CC) $(CFLAGS) $(OPT) $(SRC) $(FATHOM_OBJ) -o chess-engine-c $(LDFLAGS)
 	@python3 tools/gen_build_info.py >/dev/null 2>&1 || true
 
 debug: src/build_id.h $(SRC) $(FATHOM_OBJ)
