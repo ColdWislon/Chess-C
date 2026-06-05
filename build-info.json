@@ -1,8 +1,23 @@
 {
-  "build_date": "2026-06-02",
-  "version": "8e3c33e (last 20 commits)",
-  "summary": "chat: advertise NNUE eval in lichess greeting + feature rotation",
+  "build_date": "2026-06-05",
+  "version": "b9476db (last 20 commits)",
+  "summary": "chat: report ponder hits in lichess chat",
   "kept": [
+    {
+      "name": "report ponder hits in lichess chat  [b9476db]",
+      "kind": "quality",
+      "impact": "Surface pondering data in the engine chat. When a move comes from a"
+    },
+    {
+      "name": "pondering \u2014 search on the opponent's turn (go ponder/ponderhit/stop)  [3bf8e86]",
+      "kind": "ergonomics",
+      "impact": "Run the search on a background thread so the UCI loop can process"
+    },
+    {
+      "name": "regenerate for 8e3c33e (NNUE chat greeting)  [69cad79]",
+      "kind": "ergonomics",
+      "impact": "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
+    },
     {
       "name": "advertise NNUE eval in lichess greeting + feature rotation  [8e3c33e]",
       "kind": "quality",
@@ -87,21 +102,6 @@
       "name": "spend more time when opponent's clock is low  [f0abc9a]",
       "kind": "quality",
       "impact": "When we have >2x the opponent's remaining time, allocate up to 50% more"
-    },
-    {
-      "name": "PROF metrics, rating sparkline, win-rate by TC, last game summary, TB/book stats  [24d929b]",
-      "kind": "ergonomics",
-      "impact": "5 new dashboard features:"
-    },
-    {
-      "name": "razoring, rook open file, delta pruning, improving, king danger  [eb2faba]",
-      "kind": "search-efficiency",
-      "impact": "Pi gauntlet (40 games, 20s/side): +17 Elo +/-112, LOS 69%"
-    },
-    {
-      "name": "pawn hash table, singular extensions, LMR bad captures  [e80a96c]",
-      "kind": "search-efficiency",
-      "impact": "Pi gauntlet (40 games, 20s/side): +26 Elo +/-112, LOS 75.4%"
     }
   ],
   "rejected": []
