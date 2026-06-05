@@ -192,10 +192,21 @@ Rule-of-thumb thresholds (the things you'd actually act on):
 | Metric | Healthy | Implies if off |
 |---|---|---|
 | `ordering` (cutoffs_first / cutoffs) | > 90 % | < 85 % → move ordering weak |
-| `lmr_research` | 10-20 % | < 5 % → LMR too conservative; > 25 % → too aggressive |
+| `lmr_research` | see note | > 25 % → LMR too aggressive (reduce less) |
 | `nmp_yield` (nullcuts / nmp_attempts) | > 50 % | < 30 % → NMP wasting work |
 | `see_qprune` (see_qprunes / qnodes) | 30-70 % | < 30 % → SEE not pulling weight in qsearch |
 | `asp_widens` per search | ≤ 2 | > 2 → window starting too tight |
+
+> **`lmr_research` caveat (learned 2026-06-06):** the textbook "10–20% healthy"
+> band assumes mediocre move ordering. This engine orders at ~90%, so late
+> moves almost never beat alpha after a reduced search and the rate is
+> **saturated near its floor (~0.2–1.3%)** — you cannot tune it up into 10–20%
+> (verified: bigger reductions push it *down*; wider coverage leaves it ~1%). A
+> near-zero rate therefore does **not** mean "too conservative, reduce less" —
+> it means the reduced search is almost never wrong, so there is headroom to
+> reduce **more**. Steepening the base table `/2.25 → /1.75` on this signal
+> gained **+58.8 ±22.6 Elo** (400-game WSL gauntlet) and shipped. Only the
+> high end (> 25%) is a reliable "back off" signal here.
 
 Quick sample (5 s middlegame search on x86):
 ```bash
@@ -228,7 +239,7 @@ The user is expected to take it from there: WSL 200+ game confirmation via `tool
 
 The combined loop for any eval/search change:
 
-1. **PROF** → identify weak metric (e.g. `lmr_research=0.5%` → LMR too conservative)
+1. **PROF** → identify weak metric (e.g. high `asp_widens` → window too tight). NB: a low `lmr_research` is *not* a weak signal here — see the caveat under the PROF table.
 2. **Branch** → `git checkout -b <change>-tune`, apply minimal change, push
 3. **Pi gauntlet** (40 games, ~30 min, ±100 Elo confidence) → direction check
    - Build baseline + variant binaries, stop service, run `/tmp/<change>-gauntlet.py -n 40 -t 20`, restart service
@@ -237,8 +248,9 @@ The combined loop for any eval/search change:
 5. **Deploy**: merge branch → main, idle-check rpiBot73, `sudo systemctl restart asynclio-bot`. Production unaffected until then.
 
 **What's been tried** (see git log for details, branches still on origin):
+- `lmr-improving` (base table `0.5 + log(d)·log(m)/2.25 → /1.75`, plus `if (!improving) reduction++`) — **WSL +58.8 ± 22.6 Elo over main, LOS ~100% (400 games). Merged to main + deployed 2026-06-06** (commit `1a8bdd6`). Driven by the `lmr_research`-saturation insight — see the caveat under the PROF table.
 - `lmr-tune` (`0.85 + log(d)·log(m)/2.0`) — Pi +53 ± 113, WSL +9 ± 24. Marginal real gain.
-- `lmr-tune-v2` (`1.0 + log(d)·log(m)/1.75`) — pending WSL confirmation.
+- `lmr-tune-v2` (`1.0 + log(d)·log(m)/1.75`) — superseded by `lmr-improving`.
 - Texel snapshot from 87k bot games — Pi -61 ± 114, WSL -145 ± 41. **Discarded** (corpus too noisy, coordinate descent overfits).
 
 ## Gauntlet infrastructure
