@@ -1,8 +1,35 @@
 {
-  "build_date": "2026-06-05",
-  "version": "1331aa1 (last 20 commits)",
-  "summary": "build-info: regenerate for dbde7ce (bestmove ponder move)",
+  "build_date": "2026-06-09",
+  "version": "29f758d (last 20 commits)",
+  "summary": "docs+tooling: correct lmr_research guidance; pre-empt build-info dirty check",
   "kept": [
+    {
+      "name": "correct lmr_research guidance; pre-empt build-info dirty check  [29f758d]",
+      "kind": "ergonomics",
+      "impact": "CLAUDE.md: the PROF \"lmr_research 10-20% healthy / <5% too conservative\""
+    },
+    {
+      "name": "more aggressive reduction (divisor 2.25 -> 1.75)  [1a8bdd6]",
+      "kind": "quality",
+      "impact": "PROF showed lmr_research pinned at ~0.7-0.9% across middlegame",
+      "ab_result": "-0.9% across middlegame; +2 plies"
+    },
+    {
+      "name": "discard make-regenerated build-info.json between ref checkouts  [8fa5e43]",
+      "kind": "quality",
+      "impact": "make release rewrites the tracked build-info.json, so after building ref A"
+    },
+    {
+      "name": "reduce one extra ply when static eval is not improving  [950b072]",
+      "kind": "quality",
+      "impact": "Live PROF shows lmr_research at 0.1-0.8% (healthy band 10-20%) \u2014 LMR far",
+      "ab_result": "82.7% vs main HEAD"
+    },
+    {
+      "name": "align README/CLAUDE/ENGINE_REPORT with NNUE + pondering reality  [18bdc97]",
+      "kind": "ergonomics",
+      "impact": "- README: drop the stale \"No NNUE\" framing (NNUE ships, +207 Elo as the"
+    },
     {
       "name": "regenerate for dbde7ce (bestmove ponder move)  [1331aa1]",
       "kind": "ergonomics",
@@ -77,31 +104,6 @@
       "name": "read both bridge units' journals; point live service at asynclio-bot  [33b948b]",
       "kind": "ergonomics",
       "impact": "rpiBot73 can now run via either lichess-bot-c or the new asynclio-bot bridge"
-    },
-    {
-      "name": "add small 768->256->1 perspective NNUE pipeline  [eb2339b]",
-      "kind": "quality",
-      "impact": "Scaffolds an end-to-end NNUE path, format-verified but untrained \u2014 the"
-    },
-    {
-      "name": "fix mojibake in bot stack tree, de-duplicate origin note  [29e7f24]",
-      "kind": "quality",
-      "impact": "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
-    },
-    {
-      "name": "explain vibe-coded origin from prior WikiChess-based C engine  [6f28378]",
-      "kind": "quality",
-      "impact": "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
-    },
-    {
-      "name": "opponent stats table (W/D/L per bot, win%, rating, bar)  [20c1578]",
-      "kind": "ergonomics",
-      "impact": "dashboard: opponent stats table (W/D/L per bot, win%, rating, bar)"
-    },
-    {
-      "name": "credit Claude as development collaborator  [a0e47d8]",
-      "kind": "quality",
-      "impact": "README: credit Claude as development collaborator"
     }
   ],
   "rejected": []

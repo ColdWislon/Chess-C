@@ -649,7 +649,7 @@
         depth:live.depth, score_cp:live.score_cp, nodes:Math.round(live.nodes),
         nps:Math.round(live.nps), time:Math.round(live.time), seldepth:live.seldepth,
         pv:PV_POOL.slice(0,Math.min(PV_POOL.length,live.pvIdx)).join(" "),
-        prof:{ordering:jit(94.4,1.5),lmr_research:jit(14.0,2),nmp_yield:jit(79.7,3),see_qprune:jit(63.6,4),rfp:0,fut:0,lmp:0,asp_widens:1}
+        prof:{ordering:jit(94.4,1.5),lmr_research:jit(0.7,0.3),nmp_yield:jit(79.7,3),see_qprune:jit(63.6,4),rfp:0,fut:0,lmp:0,asp_widens:1}
       },
       system:mockSystem().system,
       build_id:"eb2339b",
@@ -838,7 +838,9 @@
     if(v==null||isNaN(v)) return "warn";
     switch(key){
       case "ordering":    return v>90?"good":v>=80?"warn":"bad";
-      case "lmr_research":return (v>=10&&v<=20)?"good":((v>=5&&v<10)||(v>20&&v<=30))?"warn":"bad";
+      /* lmr_research: this engine orders ~90% so the rate saturates near its
+         floor (~0.2–1.3%) — low is healthy, only >25% means "reduce less". */
+      case "lmr_research":return v<=5?"good":v<=25?"warn":"bad";
       case "nmp_yield":   return v>50?"good":v>=30?"warn":"bad";
       case "see_qprune":  return (v>=30&&v<=70)?"good":((v>=20&&v<30)||(v>70&&v<=80))?"warn":"bad";
       default:            return "good";
@@ -846,7 +848,7 @@
   }
   var PROF_META=[
     {key:"ordering",    name:"move ordering",   hint:">90% good",   range:[90,100]},
-    {key:"lmr_research",name:"LMR re-search",   hint:"10–20% good", range:[10,20]},
+    {key:"lmr_research",name:"LMR re-search",   hint:"≤5% good", range:[0,5]},
     {key:"nmp_yield",   name:"NMP yield",       hint:">50% good",   range:[50,100]},
     {key:"see_qprune",  name:"SEE q-prune",     hint:"30–70% good", range:[30,70]}
   ];

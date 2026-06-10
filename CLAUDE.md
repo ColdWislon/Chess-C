@@ -35,7 +35,7 @@ A classical UCI chess engine in C, running as an always-on bot on Raspberry Pi 4
 │   │   ├── nightly_gauntlet.sh        # Stockfish ladder match (systemd timer)
 │   │   └── gen_poly_keys.py / gen_build_info.* / reenable-matchmaking.sh
 │   ├── book.bin              # Polyglot opening book (gitignored, `make book`)
-│   ├── Makefile              # `make release|test|clean|bench|corpus`
+│   ├── Makefile              # `make release|pgo|test|clean|bench|corpus`
 │   ├── match.py / compare.py # Legacy A/B harness, used by wsl-gauntlet via monkey-patch
 │   └── chess-engine-c        # Built binary
 ├── syzygy/                   # 3-4-5-piece tablebases, ~939 MB (gitignored)
@@ -51,10 +51,21 @@ A classical UCI chess engine in C, running as an always-on bot on Raspberry Pi 4
 ```bash
 cd /home/bertrand/chess-c
 make release        # → ./chess-engine-c (gcc -O3 -march=native)
+make pgo            # → ./chess-engine-c with profile-guided optimization (preferred for deploys)
 make test           # perft startpos at depth 4 (197281) and 5 (4865609)
 make debug          # → ./chess-engine-c-dbg (-O0 -g)
 make clean
 ```
+
+**PGO** (`make pgo`): instrumented build → training run on the in-repo bench
+(deterministic; profiles the NNUE path since `./network.nnue` auto-loads) →
+rebuild with `-fprofile-use`. Measured **+4.6% NPS on the Pi 4** with an
+identical node count (pure perf, search tree unchanged). The training bench is
+CPU-heavy — idle-check rpiBot73 first. Foot-guns: any target that depends on
+`release` (`make test`, `make bench-compare`, …) **overwrites the PGO binary**
+with a plain build — run `make pgo` last before a deploy restart; and the
+profile is invalidated by code changes, so re-run `make pgo` after every edit
+(don't reuse stale `pgo-data/`).
 
 `src/poly_keys.h` is checked in (canonical 781 Polyglot constants). Regenerate with:
 ```bash

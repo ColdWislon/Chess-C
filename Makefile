@@ -2,6 +2,18 @@ CC      = gcc
 CFLAGS  = -std=c11 -Wall -Wextra -Isrc -Iexternal -pthread
 LDFLAGS = -pthread -lm
 
+# ── Optimization flags (Pi 4 / Cortex-A72) ────────────────────────
+# `-march=native` here already resolves to `-mcpu=cortex-a72+crc` (verified
+# `gcc -march=native -Q --help=target`) — i.e. optimal arch features AND
+# scheduling for this chip; there's no tuning left on the table from the arch
+# flag. The measured headroom is LTO + loop unrolling: together **+6.1% NPS at
+# an identical node count** (deterministic bench depth 12, best-of-N, 2026-06-09)
+# — pure perf, perft + eval parity unchanged. The win comes from LTO inlining
+# the NNUE functions into the search hot path, after which `-funroll-loops` can
+# flatten the fixed-size 768->256 accumulator / 256->1 dot-product inner loops.
+# (LTO alone was within noise here; unroll alone +2.8%; they stack.)
+OPT     = -O3 -march=native -flto -funroll-loops
+
 SRC = src/board.c src/tt.c src/eval.c src/search.c \
       src/opening.c src/perft.c src/chat.c src/bench.c \
       src/syzygy.c src/texel.c src/nnue.c src/datagen.c src/uci.c src/main.c
@@ -31,11 +43,36 @@ src/build_id.h: FORCE
 FORCE:
 
 release: src/build_id.h $(SRC) $(FATHOM_OBJ)
-	$(CC) $(CFLAGS) -O3 -march=native $(SRC) $(FATHOM_OBJ) -o chess-engine-c $(LDFLAGS)
+	$(CC) $(CFLAGS) $(OPT) $(SRC) $(FATHOM_OBJ) -o chess-engine-c $(LDFLAGS)
 	@python3 tools/gen_build_info.py >/dev/null 2>&1 || true
 
 debug: src/build_id.h $(SRC) $(FATHOM_OBJ)
 	$(CC) $(CFLAGS) -O0 -g $(SRC) $(FATHOM_OBJ) -o chess-engine-c-dbg $(LDFLAGS)
+
+# ── PGO (profile-guided optimization) ─────────────────────────────
+# `make pgo` → instrumented build → training run on the in-repo bench
+# (deterministic; exercises search/eval/movegen/TT and NNUE if
+# ./network.nnue is present) → rebuild with -fprofile-use. Replaces
+# ./chess-engine-c, so it slots straight into the normal deploy flow.
+# The training bench is CPU-heavy: idle-check rpiBot73 first on the Pi.
+# Fathom stays uninstrumented (prebuilt $(FATHOM_OBJ)) — tb probes are
+# cold in bench positions and its -w build doesn't mix with profiling.
+PGO_DIR         := pgo-data
+PGO_BENCH_DEPTH ?= 10
+
+pgo: src/build_id.h $(SRC) $(FATHOM_OBJ)
+	@rm -rf $(PGO_DIR) && mkdir -p $(PGO_DIR)
+	@echo "── PGO 1/3: instrumented build"
+	$(CC) $(CFLAGS) $(OPT) -fprofile-generate=$(PGO_DIR) -fprofile-update=atomic \
+		$(SRC) $(FATHOM_OBJ) -o chess-engine-c-pgo $(LDFLAGS)
+	@echo "── PGO 2/3: training run (bench depth $(PGO_BENCH_DEPTH))"
+	@printf 'bench $(PGO_BENCH_DEPTH)\nquit\n' | ./chess-engine-c-pgo >/dev/null
+	@echo "── PGO 3/3: optimized rebuild"
+	$(CC) $(CFLAGS) $(OPT) -fprofile-use=$(PGO_DIR) -fprofile-correction -Wno-missing-profile \
+		$(SRC) $(FATHOM_OBJ) -o chess-engine-c $(LDFLAGS)
+	@rm -f chess-engine-c-pgo
+	@python3 tools/gen_build_info.py >/dev/null 2>&1 || true
+	@echo "PGO build complete → ./chess-engine-c"
 
 # src/poly_keys.h is checked in (the canonical 781 Polyglot constants).
 # Regenerate with: python3 tools/gen_poly_keys.py > src/poly_keys.h
@@ -78,7 +115,8 @@ bench-compare-timed: release
 	@bash tools/bench_compare_timed.sh $(BENCH_MS)
 
 clean:
-	rm -f chess-engine-c chess-engine-c-dbg chess-engine-c.baseline src/build_id.h $(FATHOM_OBJ)
+	rm -f chess-engine-c chess-engine-c-dbg chess-engine-c-pgo chess-engine-c.baseline src/build_id.h $(FATHOM_OBJ)
+	rm -rf $(PGO_DIR)
 
 # ── Opening book ──────────────────────────────────────────────────
 # book.bin is gitignored (re-downloadable, ~5 MB). `make book` fetches it
@@ -129,4 +167,4 @@ quiet-labeled.epd: $(CORPUS_VENV)/bin/python
 	@$(CORPUS_VENV)/bin/python tools/gen-corpus.py --user "$(CORPUS_USER)" --max $(CORPUS_GAMES) --out quiet-labeled.epd
 	@echo "quiet-labeled.epd: $$(wc -l < quiet-labeled.epd) positions, $$(du -h quiet-labeled.epd | cut -f1)"
 
-.PHONY: release debug test clean bench bench-timed bench-baseline bench-compare bench-compare-timed book build-info corpus FORCE
+.PHONY: release debug pgo test clean bench bench-timed bench-baseline bench-compare bench-compare-timed book build-info corpus FORCE
