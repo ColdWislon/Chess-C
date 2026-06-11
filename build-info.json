@@ -1,8 +1,24 @@
 {
-  "build_date": "2026-06-09",
-  "version": "29f758d (last 20 commits)",
-  "summary": "docs+tooling: correct lmr_research guidance; pre-empt build-info dirty check",
+  "build_date": "2026-06-11",
+  "version": "911fbad (last 20 commits)",
+  "summary": "tools: add ponder hold-loop regression test",
   "kept": [
+    {
+      "name": "add ponder hold-loop regression test  [911fbad]",
+      "kind": "ergonomics",
+      "impact": "Drives the engine over UCI: go ponder on a forced-move position (where"
+    },
+    {
+      "name": "fix ponder bestmove leak, rep_stack overflow, long-game truncation  [7308efe]",
+      "kind": "search-efficiency",
+      "impact": "- Ponder hold loop now keys on a new host-only ponder_stop flag instead"
+    },
+    {
+      "name": "PGO make target, LTO+unroll opt flags, lmr_research dashboard thresholds  [a34999c]",
+      "kind": "ergonomics",
+      "impact": "- Makefile: OPT = -O3 -march=native -flto -funroll-loops (+6.1% NPS measured,",
+      "ab_result": "+6.1% NPS measured"
+    },
     {
       "name": "correct lmr_research guidance; pre-empt build-info dirty check  [29f758d]",
       "kind": "ergonomics",
@@ -89,21 +105,6 @@
       "name": "\u03bb=1.0 SF-eval net beats HCE by +207 Elo  [c9d42e5]",
       "kind": "quality",
       "impact": "Trained the 768->256->1 perspective net on Stockfish-relabeled self-play"
-    },
-    {
-      "name": "variant binary + nightly gauntlets/ output  [57c9790]",
-      "kind": "quality",
-      "impact": "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
-    },
-    {
-      "name": "mission-control redesign (theme tokens, layout rewrite)  [640fc62]",
-      "kind": "ergonomics",
-      "impact": "Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
-    },
-    {
-      "name": "read both bridge units' journals; point live service at asynclio-bot  [33b948b]",
-      "kind": "ergonomics",
-      "impact": "rpiBot73 can now run via either lichess-bot-c or the new asynclio-bot bridge"
     }
   ],
   "rejected": []
