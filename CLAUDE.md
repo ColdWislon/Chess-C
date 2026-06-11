@@ -141,7 +141,7 @@ If it prints `PLAYING <id>`, wait. Polite poll interval: 30-60 s. The game URL i
 | Move generation | Bitboards, magic-bitboard sliders (`board.c`, magics generated at startup) |
 | Search | Iterative deepening, PVS, LMR, NMP, RFP, futility, LMP, killers, history (gravity + symmetric malus), counter-moves, aspiration windows, check extensions |
 | Quiescence | Pseudo-captures → SEE-prune → legality. In-check generates all evasions. Queen-promotion bonus. |
-| Transposition table | 64 MB source default; **512 MB in production** via `uci_options.Hash` in `asyncLio-bot/config.yml` (raised from 384 on 2026-06-11). Zobrist-keyed, replace-by-depth, XOR-key for lock-free SMP, cached static eval. |
+| Transposition table | 64 MB source default; **1024 MB in production** via `uci_options.Hash` in `asyncLio-bot/config.yml` (384→512→1024 on 2026-06-11, user call). NB: the Pi has 2 GB RAM — if long games show NPS collapse + swap growth (`free -m`), drop back to 512. Zobrist-keyed, replace-by-depth, XOR-key for lock-free SMP, cached static eval. |
 | Repetition | 2-fold within search treated as draw; halfmove clock bounded; rep_stack seeded from game history (via `find_best_move_smp_hist`) |
 | Evaluation | PeSTO tapered: material + PSTs (MG/EG, mutable for texel) + mobility + king safety + pawn structure (passed/doubled/isolated) + bishop pair |
 | Opening book | Polyglot `.bin` file — `/home/bertrand/chess-c/book.bin` (path hardcoded in `main.c`, falls back to `./book.bin`) |
