@@ -129,6 +129,9 @@ typedef struct {
     SearchJob     *job;
     SearchControl *ctl;
     atomic_bool   *is_ponder;       /* true while pondering; cleared on ponderhit */
+    atomic_bool   *ponder_stop;     /* host asked us to unpark (stop/teardown);
+                                       distinct from ctl->stop, which the search
+                                       also sets on self-completion */
 } ThreadArg;
 
 /* Background search thread: probe book, run the search under the shared
@@ -156,9 +159,12 @@ static void *search_thread_fn(void *arg) {
                                       &score, &have_score, &depth_reached,
                                       &ponder_move);
 
-    /* Hold bestmove until ponderhit (is_ponder cleared) or stop. */
+    /* Hold bestmove until ponderhit (is_ponder cleared) or a host stop.
+       Don't key off ctl->stop here: find_best_move_smp_ctl sets it on
+       self-completion (forced move / mate / max depth) to halt SMP helpers,
+       and emitting bestmove then would violate UCI mid-ponder. */
     while (atomic_load_explicit(ta->is_ponder, memory_order_relaxed) &&
-           !atomic_load_explicit(&ta->ctl->stop, memory_order_relaxed)) {
+           !atomic_load_explicit(ta->ponder_stop, memory_order_relaxed)) {
         struct timespec ts = { 0, 2 * 1000 * 1000 }; /* 2 ms poll */
         nanosleep(&ts, NULL);
     }
@@ -228,11 +234,14 @@ static void *search_thread_fn(void *arg) {
 }
 
 /* Stop the running search (if any) and join its thread. Safe to call when no
-   search is running. Setting stop releases a parked ponder thread; the thread
-   still prints a bestmove (python-chess discards it on a miss/abort). */
-static void stop_and_join(bool *have_thread, pthread_t thr, SearchControl *ctl) {
+   search is running. Sets both flags: ctl->stop aborts a live search,
+   ponder_stop releases a parked ponder thread; the thread still prints a
+   bestmove (python-chess discards it on a miss/abort). */
+static void stop_and_join(bool *have_thread, pthread_t thr, SearchControl *ctl,
+                          atomic_bool *ponder_stop) {
     if (*have_thread) {
         atomic_store_explicit(&ctl->stop, true, memory_order_relaxed);
+        atomic_store_explicit(ponder_stop, true, memory_order_relaxed);
         pthread_join(thr, NULL);
         *have_thread = false;
     }
@@ -266,11 +275,14 @@ void uci_run(OpeningBook *book) {
     bool          have_thread = false;
     SearchControl ctl;
     atomic_bool   is_ponder;
+    atomic_bool   ponder_stop;
     SearchJob     job;
-    ThreadArg     targ = { .job = &job, .ctl = &ctl, .is_ponder = &is_ponder };
+    ThreadArg     targ = { .job = &job, .ctl = &ctl, .is_ponder = &is_ponder,
+                           .ponder_stop = &ponder_stop };
     atomic_init(&ctl.deadline_ms, 0);
     atomic_init(&ctl.stop, false);
     atomic_init(&is_ponder, false);
+    atomic_init(&ponder_stop, false);
 
     /* Game-history hashes: positions we passed through before the current
        root, in chronological order. Seeded into the search's rep_stack so
@@ -279,7 +291,10 @@ void uci_run(OpeningBook *book) {
     uint64_t game_history[1024];
     int      game_history_len = 0;
 
-    char line[4096];
+    /* Sized for `position startpos moves …` in very long games: each ply is
+       ~5 chars, so 32K covers ~6500 plies. 4K truncated around ply 800 and
+       made the engine play from a wrong (partial) position. */
+    static char line[32768];
     while (fgets(line, sizeof(line), stdin)) {
         /* strip newline */
         line[strcspn(line, "\r\n")] = '\0';
@@ -309,7 +324,7 @@ void uci_run(OpeningBook *book) {
             fflush(stdout);
 
         } else if (strncmp(line, "setoption", 9) == 0) {
-            stop_and_join(&have_thread, search_thr, &ctl);
+            stop_and_join(&have_thread, search_thr, &ctl, &ponder_stop);
             /* Parse: setoption name <NAME> value <VAL> */
             char *name = strstr(line, "name");
             char *val  = strstr(line, "value");
@@ -385,7 +400,7 @@ void uci_run(OpeningBook *book) {
             }
 
         } else if (strcmp(line, "ucinewgame") == 0) {
-            stop_and_join(&have_thread, search_thr, &ctl);
+            stop_and_join(&have_thread, search_thr, &ctl, &ponder_stop);
             pos_startpos(&pos);
             tt_clear(&tt);
             cs.is_first_move = true;
@@ -402,7 +417,7 @@ void uci_run(OpeningBook *book) {
             fflush(stderr);
 
         } else if (strncmp(line, "position", 8) == 0) {
-            stop_and_join(&have_thread, search_thr, &ctl);
+            stop_and_join(&have_thread, search_thr, &ctl, &ponder_stop);
             const char *p = line + 8;
             while (*p == ' ') p++;
             /* New root position: clear the history walk we're about to rebuild. */
@@ -438,10 +453,18 @@ void uci_run(OpeningBook *book) {
                     if (mv != MOVE_NONE) {
                         /* Push the position we're leaving BEFORE doing the
                            move — gives us the chronological list of prior
-                           positions, with the current root excluded. */
-                        if (game_history_len <
-                            (int)(sizeof(game_history)/sizeof(game_history[0])))
-                            game_history[game_history_len++] = pos.hash;
+                           positions, with the current root excluded. At
+                           capacity, drop the OLDEST entry: repetition lookback
+                           is halfmove-bounded, so only recent plies matter. */
+                        int hcap = (int)(sizeof(game_history)
+                                         / sizeof(game_history[0]));
+                        if (game_history_len == hcap) {
+                            memmove(game_history, game_history + 1,
+                                    (size_t)(hcap - 1)
+                                    * sizeof(game_history[0]));
+                            game_history_len = hcap - 1;
+                        }
+                        game_history[game_history_len++] = pos.hash;
                         Position next;
                         pos_do_move(&pos, mv, &next);
                         pos = next;
@@ -452,7 +475,7 @@ void uci_run(OpeningBook *book) {
         } else if (strncmp(line, "go", 2) == 0) {
             /* Any prior search should already be finished (the GUI waits for
                bestmove), but join defensively to keep state race-free. */
-            stop_and_join(&have_thread, search_thr, &ctl);
+            stop_and_join(&have_thread, search_thr, &ctl, &ponder_stop);
 
             int depth = 0;
             int time_ms = parse_time(line + 2, &pos, move_overhead,
@@ -472,6 +495,7 @@ void uci_run(OpeningBook *book) {
                 pondering ? PONDER_DEADLINE_INF : (uci_ms_now() + time_ms),
                 memory_order_relaxed);
             atomic_store_explicit(&is_ponder, pondering, memory_order_relaxed);
+            atomic_store_explicit(&ponder_stop, false, memory_order_relaxed);
 
             job.pos         = pos;            /* snapshot the root */
             job.history     = game_history;
@@ -487,8 +511,14 @@ void uci_run(OpeningBook *book) {
             if (pthread_create(&search_thr, NULL, search_thread_fn, &targ) == 0) {
                 have_thread = true;
             } else {
-                /* Spawn failed — run synchronously so we never silently stall
-                   (blocks the loop, but pondering is moot in this fallback). */
+                /* Spawn failed — run synchronously so we never silently stall.
+                   Pondering is impossible here (no one can deliver ponderhit/
+                   stop while we block), so demote to a normal timed search;
+                   otherwise the hold loop would park forever. */
+                atomic_store_explicit(&is_ponder, false, memory_order_relaxed);
+                atomic_store_explicit(&ctl.deadline_ms, uci_ms_now() + time_ms,
+                                      memory_order_relaxed);
+                job.started_ponder = false;
                 search_thread_fn(&targ);
             }
 
@@ -505,9 +535,13 @@ void uci_run(OpeningBook *book) {
 
         } else if (strcmp(line, "stop") == 0) {
             /* Abort the current search; the thread emits its best move so far.
-               On a ponder miss the GUI discards it and sends a fresh position. */
-            if (have_thread)
+               On a ponder miss the GUI discards it and sends a fresh position.
+               ponder_stop also releases a thread parked in the ponder hold
+               loop after its search self-completed. */
+            if (have_thread) {
                 atomic_store_explicit(&ctl.stop, true, memory_order_relaxed);
+                atomic_store_explicit(&ponder_stop, true, memory_order_relaxed);
+            }
 
         } else if (strncmp(line, "bench_timed", 11) == 0) {
             int ms = 1000;
@@ -584,11 +618,11 @@ void uci_run(OpeningBook *book) {
             (void)nnue_acc_self_test(&pos, depth);
 
         } else if (strcmp(line, "quit") == 0) {
-            stop_and_join(&have_thread, search_thr, &ctl);
+            stop_and_join(&have_thread, search_thr, &ctl, &ponder_stop);
             break;
         }
     }
 
-    stop_and_join(&have_thread, search_thr, &ctl);
+    stop_and_join(&have_thread, search_thr, &ctl, &ponder_stop);
     tt_free(&tt);
 }

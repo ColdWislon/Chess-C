@@ -840,12 +840,16 @@ static void *worker_run(void *arg) {
     ctx.root_best = MOVE_NONE;
 
     /* Seed rep_stack with game-history hashes so 2-fold via prior moves is
-       visible to is_repetition. Capacity matches rep_stack (1024); excess
-       (very long games) is truncated from the front since is_repetition is
-       bounded by halfmove anyway. */
+       visible to is_repetition. Reserve headroom above the seed for the
+       search's own unguarded pushes (one per active alpha_beta frame, plus
+       null-move and same-ply singular frames — 4*MAX_PLY covers the worst
+       chain); seeding to full capacity would overflow into rep_top in games
+       past ~512 moves. Excess (very long games) is truncated from the front
+       since is_repetition is bounded by halfmove anyway. */
     if (w->history && w->history_len > 0) {
         int n   = w->history_len;
-        int cap = (int)(sizeof(ctx.rep_stack) / sizeof(ctx.rep_stack[0]));
+        int cap = (int)(sizeof(ctx.rep_stack) / sizeof(ctx.rep_stack[0]))
+                  - 4 * MAX_PLY;
         const uint64_t *src = w->history;
         if (n > cap) { src += (n - cap); n = cap; }
         memcpy(ctx.rep_stack, src, (size_t)n * sizeof(uint64_t));
