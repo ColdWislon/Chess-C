@@ -1,6 +1,6 @@
 # Chess Engine Project (C)
 
-A classical UCI chess engine in C, running as an always-on bot on Raspberry Pi 4, connected to Lichess via lichess-bot.
+A classical UCI chess engine in C, running as an always-on bot on Raspberry Pi 4, connected to Lichess via the asyncLio-bot bridge (`asynclio-bot.service`).
 
 ## Repository layout
 
@@ -16,6 +16,8 @@ A classical UCI chess engine in C, running as an always-on bot on Raspberry Pi 4
 │   │   ├── opening.c/.h      # Polyglot book probe
 │   │   ├── syzygy.c/.h       # Adapter over external/tbprobe (Fathom)
 │   │   ├── texel.c/.h        # Coordinate-descent eval tuner (`texel` UCI cmd)
+│   │   ├── nnue.c/.h         # NNUE inference + .nnue loader (incremental accumulator)
+│   │   ├── datagen.c/.h      # Self-play training-data generation (`datagen` UCI cmd)
 │   │   ├── chat.c/.h         # Builds engine chat lines for lichess-bot
 │   │   ├── perft.c/.h        # Move generation tests
 │   │   ├── bench.c/.h        # In-repo perf bench positions + runner
@@ -33,7 +35,9 @@ A classical UCI chess engine in C, running as an always-on bot on Raspberry Pi 4
 │   │   ├── openings-small.epd         # 20 opening positions for variety in gauntlets
 │   │   ├── bench_compare*.sh          # Pi A/B perf comparison (interleaved-min)
 │   │   ├── nightly_gauntlet.sh        # Stockfish ladder match (systemd timer)
-│   │   └── gen_poly_keys.py / gen_build_info.* / reenable-matchmaking.sh
+│   │   ├── ponder-hold-test.py        # Ponder bestmove hold-loop regression test
+│   │   ├── nnue/                      # PyTorch trainer + C↔Python parity gate
+│   │   └── gen_poly_keys.py / gen_build_info.*
 │   ├── book.bin              # Polyglot opening book (gitignored, `make book`)
 │   ├── Makefile              # `make release|pgo|test|clean|bench|corpus`
 │   ├── match.py / compare.py # Legacy A/B harness, used by wsl-gauntlet via monkey-patch
@@ -65,7 +69,13 @@ CPU-heavy — idle-check rpiBot73 first. Foot-guns: any target that depends on
 `release` (`make test`, `make bench-compare`, …) **overwrites the PGO binary**
 with a plain build — run `make pgo` last before a deploy restart; and the
 profile is invalidated by code changes, so re-run `make pgo` after every edit
-(don't reuse stale `pgo-data/`).
+(don't reuse stale `pgo-data/`). One more: the `release`/`pgo` recipes
+regenerate `build-info.json` mid-build, but `GIT_DIRTY` is evaluated at
+Makefile *parse* time — so chaining `make test && make pgo` stamps the PGO
+binary `-dirty` (the first make dirtied the tree before the second parsed).
+For a clean stamp: start from a clean tree, run `make pgo` as its own make
+invocation, then `git checkout -- build-info.json` to drop the regenerated
+file.
 
 `src/poly_keys.h` is checked in (canonical 781 Polyglot constants). Regenerate with:
 ```bash
@@ -121,8 +131,8 @@ If it prints `PLAYING <id>`, wait. Polite poll interval: 30-60 s. The game URL i
 
 - Username: **rpiBot73** on lichess.org (legacy MegaBot73 account is idle since 2026-05-16)
 - Token stored in: `/home/bertrand/lichess-bot/config-c.yml` (the canonical config — `config.yml` is the disabled legacy unit)
-- Accepts: rapid and classical, rated, standard variant
-- Matchmaking: enabled — challenges other bots when idle, rotates between 10+0 / 10+5 / 15+10
+- Accepts: bullet through classical, casual + rated, standard variant, humans + bots (`challenge:` in `asyncLio-bot/config.yml`)
+- Matchmaking: enabled — challenges other bots after 5 min idle, rated standard, initial 1-30 min × increment 0/5/10 (`matchmaking:` in `asyncLio-bot/config.yml`)
 
 ## Engine architecture
 
@@ -131,7 +141,7 @@ If it prints `PLAYING <id>`, wait. Polite poll interval: 30-60 s. The game URL i
 | Move generation | Bitboards, magic-bitboard sliders (`board.c`, magics generated at startup) |
 | Search | Iterative deepening, PVS, LMR, NMP, RFP, futility, LMP, killers, history (gravity + symmetric malus), counter-moves, aspiration windows, check extensions |
 | Quiescence | Pseudo-captures → SEE-prune → legality. In-check generates all evasions. Queen-promotion bonus. |
-| Transposition table | 64 MB source default; **384 MB in production** via `Hash` in `config-c.yml`. Zobrist-keyed, replace-by-depth, XOR-key for lock-free SMP, cached static eval. |
+| Transposition table | 64 MB source default; **512 MB in production** via `uci_options.Hash` in `asyncLio-bot/config.yml` (raised from 384 on 2026-06-11). Zobrist-keyed, replace-by-depth, XOR-key for lock-free SMP, cached static eval. |
 | Repetition | 2-fold within search treated as draw; halfmove clock bounded; rep_stack seeded from game history (via `find_best_move_smp_hist`) |
 | Evaluation | PeSTO tapered: material + PSTs (MG/EG, mutable for texel) + mobility + king safety + pawn structure (passed/doubled/isolated) + bishop pair |
 | Opening book | Polyglot `.bin` file — `/home/bertrand/chess-c/book.bin` (path hardcoded in `main.c`, falls back to `./book.bin`) |
@@ -350,6 +360,7 @@ Conventions: feature index `rel_color*384 + piece*64 + rel_sq` (rel_sq = `sq^56`
 - `DarkOnWeakBot` — not accepting at the moment
 - `Demolito_L6` — wants classical only
 - `anti-bot` — does not accept
+- `catriever`, `admete_bot`, `VariantsBot` — added later; see `blocklist:` in the config for the live list
 
 **Rate limiting — two distinct flavors:**
 
@@ -371,7 +382,8 @@ Recovery if either type is stuck:
 ```bash
 wget https://github.com/michaeldv/donna_opening_books/raw/master/gm2600.bin \
      -O /home/bertrand/chess-c/book.bin
-sudo systemctl restart lichess-bot
+# idle-check rpiBot73 first, then:
+sudo systemctl restart asynclio-bot
 ```
 
 ## Testing
