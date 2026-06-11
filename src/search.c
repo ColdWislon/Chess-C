@@ -535,9 +535,10 @@ static int alpha_beta(const Position *pos, int depth, int alpha, int beta,
                     m == counter))
                     reduction--;
                 if (quiet) {
+                    /* Continuous history scaling: ±1 ply per 8192 history
+                       points, replacing the old two-threshold nudge. */
                     int h = ctx->history[pos->side][MOVE_FROM(m)][MOVE_TO(m)];
-                    if (h < -1000) reduction++;
-                    else if (h > 2000) reduction--;
+                    reduction -= h / 8192;
                 }
                 if (bad_cap) reduction++;
                 /* Static eval falling (not improving) → late quiets are even
