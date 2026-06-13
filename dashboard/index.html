@@ -229,7 +229,7 @@
   .pcount .k{font-size:9.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--faint);margin-top:2px}
 
   /* ---------- gauges ---------- */
-  .gauges{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .gauges{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
   .gauge{display:flex;flex-direction:column;align-items:center;gap:2px}
   .gauge svg{width:100%;height:auto;max-width:120px}
   .gauge .glabel{font-size:10px;letter-spacing:.7px;text-transform:uppercase;color:var(--faint)}
@@ -668,6 +668,7 @@
   function mockSystem(){
     return {system:{
       cpu_pct:jit(41.2,6),
+      cpu_freq:{cur_mhz:Math.round(jit(1500,300)),max_mhz:1800,min_mhz:600,gov:"ondemand"},
       mem:{total_mb:3800,used_mb:Math.round(jit(1200,120)),pct:0},
       temp_c:jit(58.3,2.5),
       power:{status:"ok",now:false,ever:true,raw:"0x50000"}
@@ -912,10 +913,15 @@
     var memColor=memPct>85?"#f87171":memPct>70?"#fbbf24":"#60a5fa";
     var tColor=temp>=80?"#f87171":temp>=70?"#fbbf24":"#34d399";
     var tempPct=Math.max(0,Math.min(100,(temp/90)*100));
+    var fq=sys.cpu_freq||{}, fcur=fq.cur_mhz, fmax=fq.max_mhz||1800;
+    var freqPct=fcur!=null?(fcur/fmax*100):0;
+    // green when running flat-out (≈max), blue when the governor has scaled down
+    var fColor=freqPct>=95?"#34d399":"#60a5fa";
     $("gauges").innerHTML=
       arcGauge(cpu, cpuColor, "cpu", (cpu==null?"":cpu.toFixed(0)+"% load"), (cpu==null?"—":cpu.toFixed(0)+"%"))+
       arcGauge(memPct, memColor, "ram", (mem.used_mb!=null?fmtBig(mem.used_mb*1e6).replace("B","")+"B / "+fmtBig((mem.total_mb||0)*1e6).replace("B","")+"B":""), (memPct==null?"—":memPct.toFixed(0)+"%"))+
-      arcGauge(tempPct, tColor, "temp", "limit 90°", (temp==null?"—":temp.toFixed(0)+"°"));
+      arcGauge(tempPct, tColor, "temp", "limit 90°", (temp==null?"—":temp.toFixed(0)+"°"))+
+      arcGauge(freqPct, fColor, "clock", (fcur==null?"":"MHz"+(fq.gov?" · "+fq.gov:"")), (fcur==null?"—":String(fcur)));
 
     var p=sys.power||{};
     // power.now / power.ever arrive as objects ({undervolt:…,throttled:…,…}) from

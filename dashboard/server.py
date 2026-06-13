@@ -301,6 +301,28 @@ def cpu_temp_c() -> float | None:
         return None
 
 
+def cpu_freq() -> dict:
+    """Pi CPU clock from the cpufreq sysfs (no subprocess). Current/max/min in
+    MHz plus the active scaling governor (ondemand scales 600↔1800 with load)."""
+    def _mhz(name: str) -> int | None:
+        try:
+            with open(f"/sys/devices/system/cpu/cpu0/cpufreq/{name}") as f:
+                return round(int(f.read().strip()) / 1000)
+        except Exception:
+            return None
+    try:
+        with open("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor") as f:
+            gov = f.read().strip()
+    except Exception:
+        gov = None
+    return {
+        "cur_mhz": _mhz("scaling_cur_freq"),
+        "max_mhz": _mhz("cpuinfo_max_freq"),
+        "min_mhz": _mhz("cpuinfo_min_freq"),
+        "gov":     gov,
+    }
+
+
 # `vcgencmd get_throttled` returns a bitmask. Bits 0-3 are "now"; bits 16-19
 # are "ever since boot". See https://www.raspberrypi.com/documentation/computers/os.html#vcgencmd
 _THROTTLE_BITS = {
@@ -404,10 +426,11 @@ def engine_proc_stats(service: str) -> dict:
 
 def system_stats(service: str = "") -> dict:
     out = {
-        "cpu_pct": cpu_percent(),
-        "mem":     mem_stats(),
-        "temp_c":  cpu_temp_c(),
-        "power":   power_status(),
+        "cpu_pct":  cpu_percent(),
+        "cpu_freq": cpu_freq(),
+        "mem":      mem_stats(),
+        "temp_c":   cpu_temp_c(),
+        "power":    power_status(),
     }
     if service:
         out["engine_proc"] = engine_proc_stats(service)
