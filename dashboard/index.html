@@ -918,13 +918,18 @@
       arcGauge(tempPct, tColor, "temp", "limit 90°", (temp==null?"—":temp.toFixed(0)+"°"));
 
     var p=sys.power||{};
+    // power.now / power.ever arrive as objects ({undervolt:…,throttled:…,…}) from
+    // the live API — a non-empty object is always truthy, so collapse to booleans
+    // before testing (and prefer the backend's authoritative status field).
+    var anyOf=function(v){ return v&&typeof v==="object"?Object.values(v).some(Boolean):!!v; };
+    var nowT=anyOf(p.now), everT=anyOf(p.ever);
     var chipCls, chipTxt;
-    if(p.now){ chipCls="bad"; chipTxt="THROTTLING NOW"; }
-    else if(p.status==="warn"||p.ever){ chipCls="warn"; chipTxt=p.ever?"undervolt seen":"power warn"; }
+    if(p.status==="active"||nowT){ chipCls="bad"; chipTxt="THROTTLING NOW"; }
+    else if(p.status==="warn"||p.status==="past"||everT){ chipCls="warn"; chipTxt=everT?"undervolt seen":"power warn"; }
     else { chipCls="ok"; chipTxt="power ok"; }
     $("pi-foot").innerHTML=
-      '<span class="pwr-chip '+chipCls+'" title="raw '+esc(p.raw||"—")+(p.ever?" · undervolt detected since boot":"")+'"><span class="pdot"></span>'+chipTxt+'</span>'+
-      (p.ever&&!p.now?'<span class="card-tag">⚑ flagged since boot</span>':'')+
+      '<span class="pwr-chip '+chipCls+'" title="raw '+esc(p.raw||"—")+(everT?" · undervolt detected since boot":"")+'"><span class="pdot"></span>'+chipTxt+'</span>'+
+      (everT&&!nowT?'<span class="card-tag">⚑ flagged since boot</span>':'')+
       '<span class="pi-uptime">'+(curStatus&&curStatus.play_time_seconds!=null?"uptime ~"+fmtDur(curStatus.play_time_seconds):"")+'</span>';
   }
 
