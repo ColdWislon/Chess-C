@@ -95,6 +95,17 @@ typedef struct {
     int      pv_len[MAX_PLY + 1];
 } SearchCtx;
 
+/* worker_run seeds rep_stack from game history but reserves 4*MAX_PLY entries
+   of headroom for the search's own pushes (one per live alpha_beta / null-move
+   / singular frame). That reservation must stay strictly positive — otherwise
+   the seed, or the search's own pushes, overflow rep_stack and silently
+   corrupt repetition detection (the latent overflow fixed in this change). If
+   MAX_PLY or rep_stack[] ever change, this guard catches the drift at compile
+   time. */
+_Static_assert((int)(sizeof(((SearchCtx *)0)->rep_stack) / sizeof(uint64_t))
+                   > 4 * MAX_PLY,
+               "rep_stack too small for its 4*MAX_PLY seed headroom");
+
 /* Wrapper that does pos_do_move and keeps the per-ply accumulator stack in
    sync. ply is the current ply BEFORE the move (so the child runs at ply+1
    and reads acc_stack[ply+1]). */
